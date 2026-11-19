@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>쎈스 어워드 — 상장 일괄 생성 | WSNS studio</title>
+<meta name="description" content="엑셀 명단을 붙여 넣으면 상장 용지에 맞춰 글자 크기·장평·자간을 자동으로 맞추고, PDF와 한글(HWPX)로 한 번에 만드는 WSNS studio 웹앱. 데이터는 내 기기 안에서만 처리돼요.">
+<meta name="theme-color" content="#7C5CF0">
+<link rel="icon" type="image/svg+xml" href="brand/wsns-mark.svg">
+<link rel="stylesheet" href="fonts/ui/pretendard/pretendardvariable-dynamic-subset.css">
+<link rel="stylesheet" href="style.css">
+<script>try{if(localStorage.getItem('sense-award:theme')==='dark')document.documentElement.dataset.theme='dark'}catch{}</script>
+</head>
+<body>
+<header class="top">
+  <a class="wordmark" href="https://wsns.studio/" target="_blank" rel="noopener" title="WSNS studio 홈페이지" aria-label="쎈스 어워드 — WSNS studio 홈페이지">
+    <img class="mark" src="brand/wsns-mark.svg" alt="" width="166" height="212" draggable="false">
+    <span class="bn">
+      <b>쎈스 어워드</b>
+      <small class="pron"><span class="pn-en">WSNS studio</span> <span class="pn-k">[웨스엔에스 스튜디오]</span></small>
+    </span>
+  </a>
+  <nav class="step-tabs" id="stepTabs" aria-label="작업 단계">
+    <button data-step="1"><span class="n">1</span>용지</button>
+    <button data-step="2"><span class="n">2</span>명단</button>
+    <button data-step="3"><span class="n">3</span>문구·서식</button>
+    <button data-step="4"><span class="n">4</span>내보내기</button>
+  </nav>
+  <div class="top-actions">
+    <button class="ghost" id="resetBtn" title="처음 상태로 되돌리기">초기화</button>
+    <button class="ghost" id="themeBtn">어둡게</button>
+  </div>
+</header>
+
+<main class="workspace">
+  <aside class="panel" id="panel">
+    <!-- 1. 용지 -->
+    <section class="step" data-step="1">
+      <div class="step-head">
+        <h2>어떤 상장 용지에 인쇄하나요?</h2>
+        <p>용지를 고르면 글 상자 배치가 그 용지에 맞게 바뀌어요. 배경 그림은 화면에서만 보이고 인쇄에는 들어가지 않아요.</p>
+      </div>
+      <div class="paper-grid" id="paperGrid"></div>
+      <div class="card">
+        <h3>내 상장 용지 견본 쓰기</h3>
+        <p class="hint">갖고 있는 상장 용지를 스캔하거나 사진으로 찍어 올리면 그 위에서 글 상자를 맞출 수 있어요.</p>
+        <div class="row">
+          <label class="file-btn">견본 이미지 올리기<input type="file" id="bgFile" accept="image/*"></label>
+          <button class="ghost small" id="bgClear" hidden>견본 지우기</button>
+        </div>
+        <div class="row">
+          <label class="lbl">용지 크기</label>
+          <select id="sizeSel"></select>
+        </div>
+        <div class="row">
+          <label class="lbl">견본 진하기</label>
+          <input type="range" id="bgOpacity" min="20" max="100" step="5">
+        </div>
+      </div>
+      <div class="card">
+        <h3>프린터 위치 보정</h3>
+        <p class="hint">인쇄해 보니 글자가 한쪽으로 밀린다면 그만큼 옮겨 주세요. 내보내기 결과에만 적용돼요.</p>
+        <div class="row two">
+          <label class="lbl">가로(mm) <input type="number" id="offX" step="0.5"></label>
+          <label class="lbl">세로(mm) <input type="number" id="offY" step="0.5"></label>
+        </div>
+        <p class="hint">오른쪽·아래로 밀려 나오면 음수(-)를 넣어요.</p>
+      </div>
+      <div class="step-foot"><button class="primary" data-goto="2">다음: 명단 넣기</button></div>
+    </section>
+
+    <!-- 2. 명단 -->
+    <section class="step" data-step="2">
+      <div class="step-head">
+        <h2>받는 사람 명단을 넣어 주세요</h2>
+        <p>엑셀에서 제목 줄까지 함께 복사해 붙여 넣으면, 제목이 변수 이름(키)이 되어 상장 문구에 들어가요.</p>
+      </div>
+      <div class="seg" role="tablist">
+        <button data-mode="paste" class="on">표 붙여넣기</button>
+        <button data-mode="direct">직접 입력</button>
+      </div>
+      <div class="mode" data-mode="paste">
+        <textarea id="pasteBox" rows="5" placeholder="엑셀에서 표를 복사한 뒤 여기에 붙여 넣으세요 (Ctrl+V)"></textarea>
+        <label class="check"><input type="checkbox" id="headerRow" checked> 첫 줄은 항목 이름(키)</label>
+        <div class="table-wrap"><table class="grid" id="grid"></table></div>
+        <div class="row">
+          <button class="ghost small" id="addRow">줄 추가</button>
+          <button class="ghost small" id="addCol">항목 추가</button>
+          <span class="count" id="rowCount"></span>
+        </div>
+      </div>
+      <div class="mode" data-mode="direct" hidden>
+        <div class="direct-nav">
+          <button class="ghost small" id="dPrev" aria-label="이전 사람">이전</button>
+          <span id="dPos"></span>
+          <button class="ghost small" id="dNext" aria-label="다음 사람">다음</button>
+          <button class="ghost small" id="dAdd">새 상장 추가</button>
+          <button class="ghost small danger" id="dDel">이 상장 삭제</button>
+        </div>
+        <div id="directForm" class="direct-form"></div>
+      </div>
+      <div class="card warn" id="mapCard" hidden>
+        <h3>문구의 변수를 명단 항목과 이어 주세요</h3>
+        <p>상장 문구에 쓴 변수 중 명단에 없는 것이 있어요. 어느 항목 값을 넣을지 고르면 문구가 바뀌어요.</p>
+        <div id="mapRows" class="map-rows"></div>
+      </div>
+      <div class="card keys">
+        <h3>쓸 수 있는 변수</h3>
+        <div class="chips" id="keyChips"></div>
+        <p class="hint">{{순번}}은 1, 2, 3…, {{순번:3}}은 001, 002…처럼 자리 수를 맞춰요. {{오늘}}은 오늘 날짜예요.</p>
+      </div>
+      <div class="step-foot"><button class="ghost" data-goto="1">이전</button><button class="primary" data-goto="3">다음: 문구·서식</button></div>
+    </section>
+
+    <!-- 3. 문구·서식 -->
+    <section class="step" data-step="3">
+      <div class="step-head">
+        <h2>상장 문구와 글꼴을 정해요</h2>
+        <p>칸마다 문구에 변수를 넣으면 사람마다 값이 바뀌어 들어가요. 글이 길면 장평 → 자간 → 글자 크기 순서로 자동으로 줄여 맞춰요.</p>
+      </div>
+      <div class="card">
+        <div class="row">
+          <label class="lbl">모든 칸 글꼴</label>
+          <select id="allFont"></select>
+        </div>
+        <p class="hint" id="fontNote"></p>
+      </div>
+      <div id="fieldList" class="field-list"></div>
+      <div class="card" id="stampCard">
+        <h3>수여자 도장</h3>
+        <p class="hint">도장 이미지를 올리면 수여자 이름 끝 글자에 걸치게 찍혀요. 흰 바탕은 투명하게 바꿀 수 있어요.</p>
+        <div class="row">
+          <label class="file-btn">도장 이미지 올리기<input type="file" id="stampFile" accept="image/*"></label>
+          <button class="ghost small" id="stampClear" hidden>도장 지우기</button>
+        </div>
+        <div class="stamp-preview" id="stampPreview" hidden></div>
+        <label class="check"><input type="checkbox" id="stampWhite" checked> 흰 바탕 투명하게</label>
+        <label class="check"><input type="checkbox" id="stampRed"> 붉은색으로 맞추기</label>
+        <div class="row three">
+          <label class="lbl">크기(mm) <input type="number" id="stampSize" step="0.5" min="5"></label>
+          <label class="lbl">좌우(mm) <input type="number" id="stampDx" step="0.5"></label>
+          <label class="lbl">위아래(mm) <input type="number" id="stampDy" step="0.5"></label>
+        </div>
+      </div>
+      <div class="step-foot"><button class="ghost" data-goto="2">이전</button><button class="primary" data-goto="4">다음: 내보내기</button></div>
+    </section>
+
+    <!-- 4. 내보내기 -->
+    <section class="step" data-step="4">
+      <div class="step-head">
+        <h2>상장 파일로 내보내요</h2>
+        <p>PDF는 미리보기와 똑같이 나와요. 한글(HWPX)은 글상자로 만들어져 열어서 고칠 수 있어요.</p>
+      </div>
+      <div class="card summary" id="summary"></div>
+      <div class="card">
+        <h3>내보낼 범위</h3>
+        <div class="seg" id="rangeSeg">
+          <button data-range="all" class="on">전체</button>
+          <button data-range="current">보고 있는 장만</button>
+        </div>
+      </div>
+      <div class="export-buttons">
+        <button class="primary big" id="pdfBtn">PDF 내려받기</button>
+        <button class="primary big alt" id="hwpxBtn">한글(HWPX) 내려받기</button>
+      </div>
+      <label class="check"><input type="checkbox" id="bgInPdf"> PDF에 견본 배경도 넣기 (확인용 · 인쇄용 아님)</label>
+      <div class="progress" id="progress" hidden><div class="bar"><i></i></div><span></span></div>
+      <div class="card warn" id="warnBox" hidden></div>
+      <div class="card">
+        <h3>한글에서 열 때</h3>
+        <p class="hint">한글 파일에는 글꼴이 들어가지 않아요. 같은 모양으로 보려면 쓴 글꼴을 PC에 설치해 주세요.</p>
+        <ul class="font-links" id="fontLinks"></ul>
+      </div>
+      <div class="step-foot"><button class="ghost" data-goto="3">이전</button></div>
+    </section>
+  </aside>
+
+  <section class="stage" id="stage">
+    <div class="stage-bar">
+      <div class="nav">
+        <button class="ghost small" id="prevRec" aria-label="이전 상장">이전</button>
+        <span class="pos" id="recPos">1 / 1</span>
+        <button class="ghost small" id="nextRec" aria-label="다음 상장">다음</button>
+      </div>
+      <div class="toggles">
+        <label class="check"><input type="checkbox" id="showBg" checked> 견본 배경</label>
+        <label class="check"><input type="checkbox" id="showBoxes" checked> 글 상자</label>
+        <select id="zoomSel" aria-label="확대">
+          <option value="fit">화면에 맞춤</option>
+          <option value="0.75">75%</option>
+          <option value="1">100%</option>
+          <option value="1.5">150%</option>
+        </select>
+      </div>
+    </div>
+    <div class="canvas" id="canvas">
+      <div class="sheet" id="sheet"></div>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span class="foot-brand"><b>쎈스 어워드</b> Sense Award · <a href="https://wsns.studio/" target="_blank" rel="noopener">WSNS studio</a></span>
+  <span>명단과 도장은 이 기기 안에서만 처리돼요 · 서버로 보내지 않아요</span>
+</footer>
+
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/fontkit.umd.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
