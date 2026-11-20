@@ -16,6 +16,7 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
 const STORE_KEY = 'sense-award:state:v3';
+const LAYOUT_VERSION = 2;
 
 // ---------- 상태 ----------
 function freshState() {
@@ -31,7 +32,8 @@ function freshState() {
     measured: 100,
     stamp: { enabled: false, src: null, png: null, imgW: 0, imgH: 0, white: true, red: false, size: 20, dx: -5, dy: 0, manual: false },
     showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: false,
-    dataMode: 'paste', selected: null, snap: true,
+    dataMode: 'paste', selected: null, sel: [], snap: true,
+    layoutVersion: LAYOUT_VERSION,
   };
 }
 
@@ -43,8 +45,18 @@ function load() {
     if (!raw) return null;
     const s = JSON.parse(raw);
     // 남은 작업 내용은 살리되, 화면은 늘 첫 단계(용지)에서 시작한다
-    const st = { ...freshState(), ...s, step: 1, current: 0, selected: null, zoom: 'fit', dataMode: 'paste' };
+    const st = { ...freshState(), ...s, step: 1, current: 0, selected: null, sel: [], zoom: 'fit', dataMode: 'paste' };
     st.border = normBorder(st.border);
+    // 배치 규칙이 바뀌었으면(참고 상장 비율 적용) 칸 기본 서식을 맞추고 자동 배치로 되돌린다
+    if ((st.layoutVersion || 1) < LAYOUT_VERSION) {
+      const defs = Object.fromEntries(FIELD_DEFS.map(d => [d.id, d]));
+      st.fields = st.fields.map(f => {
+        const d = defs[f.id] || {};
+        return { ...f, manual: false, align: d.align ?? f.align, spacing: d.spacing ?? 0, lineHeight: d.lineHeight ?? f.lineHeight };
+      });
+      st.stamp = { ...st.stamp, manual: false };
+      st.layoutVersion = LAYOUT_VERSION;
+    }
     return st;
   } catch { return null; }
 }
@@ -141,7 +153,8 @@ function restore(snap) {
     } else state[k] = clone(snap[k]);
   }
   histCur = snap; histCurStr = snapStr(snap);
-  if (state.selected && !state.fields.some(f => f.id === state.selected)) state.selected = null;
+  state.sel = (state.sel || []).filter(id => state.fields.some(f => f.id === id));
+  if (!state.sel.includes(state.selected)) state.selected = state.sel[state.sel.length - 1] || null;
   closeEditor();
   // 지금 보고 있는 단계 화면을 다시 그린다
   if (state.step === 1) renderBorderPage(true);
@@ -364,14 +377,25 @@ function fontOptions(sel) {
   return FONTS.map(f => `<option value="${f.id}" ${f.id === sel ? 'selected' : ''}>${esc(f.name)} (${f.kind})</option>`).join('');
 }
 
-function selField() { return state.fields.find(x => x.id === state.selected) || null; }
+// 여러 칸 고르기: state.sel 은 고른 칸 목록, state.selected 는 그중 대표(리본에 값을 보여 줄 칸)
+const selIds = () => state.sel || [];
+const isSel = id => selIds().includes(id);
+function selFields() { return state.fields.filter(f => isSel(f.id)); }
+function selField() { return isSel(state.selected) ? state.fields.find(x => x.id === state.selected) : (selFields()[0] || null); }
+function setSelection(ids, primary) {
+  state.sel = [...new Set(ids)].filter(id => state.fields.some(f => f.id === id));
+  state.selected = primary && state.sel.includes(primary) ? primary : (state.sel[state.sel.length - 1] || null);
+  renderRibbon();
+  refresh();
+}
 
 // 상단 리본: 고른 칸의 서식을 보여 주고 바로 고친다 (칸을 안 고르면 글꼴은 모든 칸에)
 function renderRibbon() {
   if (!$('#ribbon')) return;
   const f = selField();
-  $('#rbField').innerHTML = `<option value="">칸 고르기</option>`
-    + state.fields.map(x => `<option value="${x.id}" ${f && f.id === x.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
+  const many = selIds().length > 1;
+  $('#rbField').innerHTML = (many ? `<option value="" selected>${selIds().length}개 칸</option>` : `<option value="">칸 고르기</option>`)
+    + state.fields.map(x => `<option value="${x.id}" ${!many && f && f.id === x.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
   const allSame = state.fields.every(x => x.font === state.fields[0].font);
   const fontSel = f ? f.font : (allSame ? state.fields[0].font : '');
   $('#rbFont').innerHTML = (f ? '' : `<option value="" ${fontSel ? '' : 'selected'} disabled>모든 칸 글꼴…</option>`)
@@ -384,9 +408,15 @@ function renderRibbon() {
   const manualCount = state.fields.filter(x => x.manual).length + (state.stamp.manual ? 1 : 0);
   $('#rbAutoAll').disabled = !manualCount;
   $('#rbAutoAll').title = manualCount ? `직접 바꾼 ${manualCount}곳을 자동 배치로 되돌려요` : '모든 칸이 자동 배치예요';
-  $('#rbAuto').textContent = !f ? '' : f.manual ? '직접 배치' : '자동 배치';
-  $('#rbAuto').className = 'auto-state' + (f ? (f.manual ? ' manual' : ' auto') : '');
-  $('#rbAutoField').hidden = !f || !f.manual;
+  const sf = selFields();
+  const nManual = sf.filter(x => x.manual).length;
+  $('#rbAuto').textContent = !f ? '' : nManual === 0 ? '자동 배치' : nManual === sf.length ? '직접 배치' : '일부 직접 배치';
+  $('#rbAuto').className = 'auto-state' + (f ? (nManual ? ' manual' : ' auto') : '');
+  $('#rbAutoField').hidden = !f || !nManual;
+  $('#popPlaceTitle').textContent = many ? `고른 상자 ${sf.length}개끼리 맞추기` : '상자를 글 영역 기준으로 정렬';
+  $$('#pop-place .multi-only').forEach(el => { el.hidden = !many; });
+  $$('#pop-place [data-place^="dist"]').forEach(el => { el.disabled = sf.length < 3; });
+  $('#posNote').textContent = many ? `숫자는 대표 칸(${f ? f.label : ''})에만 적용돼요.` : '';
   if (!f) { $('#rbInfo').textContent = ''; closePops(['fit', 'place']); return; }
   $('#rbSize').value = f.size;
   $('#rbBold').classList.toggle('on', !!f.bold);
@@ -440,11 +470,7 @@ function closePops(only) {
   });
 }
 
-function selectField(id) {
-  state.selected = id || null;
-  renderRibbon();
-  refresh();
-}
+function selectField(id) { setSelection(id ? [id] : [], id); }
 
 function renderStampCard() {
   const s = state.stamp;
@@ -572,7 +598,7 @@ async function renderPreview() {
   } else if (state.showBoxes) {
     boxes = rec.fields.map(r => {
       const f = r.field;
-      const cls = ['box', r.overflow ? 'over' : '', state.selected === f.id ? 'sel' : '', state.step === 3 ? 'drag' : ''].join(' ');
+      const cls = ['box', r.overflow ? 'over' : '', isSel(f.id) ? 'sel' : '', isSel(f.id) && f.id === state.selected && selIds().length > 1 ? 'primary' : '', state.step === 3 ? 'drag' : ''].join(' ');
       return `<g class="${cls}" data-box="${f.id}">
         <rect class="area" x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}"/>
         <text class="tag" x="${f.x + 0.6}" y="${f.y - 0.9}">${esc(f.label)}${r.overflow ? ' · 넘침' : ''}${r.edited ? ' · 직접 고침' : ''}</text>
@@ -585,7 +611,7 @@ async function renderPreview() {
     }
   }
   $('#sheet').innerHTML = `<svg id="page" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="aspect-ratio:${w}/${h}">
-    <rect width="${w}" height="${h}" fill="#fff"/>${bg}<g class="text-layer">${textLayerSvg(rec)}</g>${stamp}<g class="box-layer">${boxes}</g><g class="guide-layer">${guideSvg()}</g></svg>`;
+    <rect width="${w}" height="${h}" fill="#fff"/>${bg}<g class="text-layer">${textLayerSvg(rec)}</g>${stamp}<g class="box-layer">${boxes}</g><g class="guide-layer">${guideSvg()}${marqueeSvg()}</g></svg>`;
   ribbonInfo();
   applyZoom();
   positionEditor();
@@ -673,15 +699,22 @@ let guides = { x: [], y: [] };
 
 function contentArea() { return contentRect(state.border); }
 
-// 끌고 있는 상자의 가장자리·가운데를 용지 가운데, 안쪽 여백, 다른 상자에 붙인다
-function snapBox(f, d, dx, dy, enabled, svg) {
+// 끌고 있는 상자(여러 개면 묶음 전체)의 가장자리·가운데를 용지 가운데, 글 영역, 다른 상자에 붙인다
+// lock: 'x' 면 가로로만, 'y' 면 세로로만 움직인다(Shift)
+function snapBox(o, mode, dx, dy, enabled, svg, exclude, lock) {
   const r2 = v => Math.round(v * 2) / 2;
-  const o = d.orig;
-  let box = d.mode === 'move'
+  let box = mode === 'move'
     ? { x: o.x + dx, y: o.y + dy, w: o.w, h: o.h }
     : { x: o.x, y: o.y, w: Math.max(5, o.w + dx), h: Math.max(3, o.h + dy) };
   const out = { x: [], y: [] };
-  if (!enabled) return { box: { x: r2(box.x), y: r2(box.y), w: r2(box.w), h: r2(box.h) }, guides: out };
+  const round = v => Math.round(v * 100) / 100;
+  const done = () => ({ box: { x: round(box.x), y: round(box.y), w: round(box.w), h: round(box.h) }, guides: out });
+  if (!enabled) {
+    if (lock !== 'y') box.x = r2(box.x);
+    if (lock !== 'x') box.y = r2(box.y);
+    if (mode !== 'move') { box.w = r2(box.w); box.h = r2(box.h); }
+    return done();
+  }
   const { w: W, h: H } = paperSize();
   const ca = contentArea();
   // 화면에서 6px 안이면 붙는다
@@ -690,36 +723,47 @@ function snapBox(f, d, dx, dy, enabled, svg) {
   const tx = [W / 2, ca.x, ca.x + ca.w];
   const ty = [H / 2, ca.y, ca.y + ca.h];
   for (const g of state.fields) {
-    if (g.id === f.id) continue;
+    if (exclude.has(g.id)) continue;
     tx.push(g.x, g.x + g.w / 2, g.x + g.w);
     ty.push(g.y, g.y + g.h / 2, g.y + g.h);
   }
   const best = (cands, targets) => {
     let b = null;
-    for (const [off, val] of cands) for (const t of targets) {
+    for (const val of cands) for (const t of targets) {
       const dd = t - val;
-      if (Math.abs(dd) <= tol && (!b || Math.abs(dd) < Math.abs(b.d))) b = { d: dd, t, off };
+      if (Math.abs(dd) <= tol && (!b || Math.abs(dd) < Math.abs(b.d))) b = { d: dd, t };
     }
     return b;
   };
-  if (d.mode === 'move') {
-    const bx = best([[0, box.x], [0.5, box.x + box.w / 2], [1, box.x + box.w]], tx);
-    if (bx) box.x += bx.d; else box.x = r2(box.x);
-    const by = best([[0, box.y], [0.5, box.y + box.h / 2], [1, box.y + box.h]], ty);
-    if (by) box.y += by.d; else box.y = r2(box.y);
-    // 붙은 모든 선을 보여 준다
-    for (const t of new Set(tx)) if ([box.x, box.x + box.w / 2, box.x + box.w].some(v => Math.abs(v - t) < 0.01)) out.x.push(t);
-    for (const t of new Set(ty)) if ([box.y, box.y + box.h / 2, box.y + box.h].some(v => Math.abs(v - t) < 0.01)) out.y.push(t);
+  if (mode === 'move') {
+    if (lock !== 'y') {
+      const bx = best([box.x, box.x + box.w / 2, box.x + box.w], tx);
+      if (bx) box.x += bx.d; else box.x = r2(box.x);
+      for (const t of new Set(tx)) if ([box.x, box.x + box.w / 2, box.x + box.w].some(v => Math.abs(v - t) < 0.01)) out.x.push(t);
+    }
+    if (lock !== 'x') {
+      const by = best([box.y, box.y + box.h / 2, box.y + box.h], ty);
+      if (by) box.y += by.d; else box.y = r2(box.y);
+      for (const t of new Set(ty)) if ([box.y, box.y + box.h / 2, box.y + box.h].some(v => Math.abs(v - t) < 0.01)) out.y.push(t);
+    }
+    // Shift로 묶은 축은 처음 자리의 가운데 선을 보여 준다
+    if (lock === 'x') out.y.push(o.y + o.h / 2);
+    if (lock === 'y') out.x.push(o.x + o.w / 2);
   } else {
-    const bx = best([[1, box.x + box.w]], tx);
+    const bx = best([box.x + box.w], tx);
     if (bx) box.w += bx.d; else box.w = r2(box.w);
-    const by = best([[1, box.y + box.h]], ty);
+    const by = best([box.y + box.h], ty);
     if (by) box.h += by.d; else box.h = r2(box.h);
     if (bx) out.x.push(bx.t);
     if (by) out.y.push(by.t);
   }
-  const round = v => Math.round(v * 100) / 100;
-  return { box: { x: round(box.x), y: round(box.y), w: round(box.w), h: round(box.h) }, guides: out };
+  return done();
+}
+
+function boundsOf(list) {
+  const x1 = Math.min(...list.map(f => f.x)), y1 = Math.min(...list.map(f => f.y));
+  const x2 = Math.max(...list.map(f => f.x + f.w)), y2 = Math.max(...list.map(f => f.y + f.h));
+  return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
 }
 
 function guideSvg() {
@@ -727,7 +771,7 @@ function guideSvg() {
   let s = '';
   for (const x of guides.x) s += `<line class="guide${Math.abs(x - w / 2) < 0.01 ? ' mid' : ''}" x1="${x}" y1="0" x2="${x}" y2="${h}"/>`;
   for (const y of guides.y) s += `<line class="guide${Math.abs(y - h / 2) < 0.01 ? ' mid' : ''}" x1="0" y1="${y}" x2="${w}" y2="${y}"/>`;
-  if (s && drag) {
+  if (s && drag && drag.mode !== 'marquee') {
     const ca = contentArea();
     s = `<rect class="content-area" x="${ca.x}" y="${ca.y}" width="${ca.w}" height="${ca.h}"/>` + s;
   }
@@ -737,29 +781,57 @@ function guideSvg() {
 const f0 = id => state.fields.find(x => x.id === id);
 
 function placeSelected(how) {
-  const f = state.fields.find(x => x.id === state.selected);
-  if (!f) return;
-  f.manual = true;
+  const list = selFields();
+  if (!list.length) return;
   const { w: W, h: H } = paperSize();
   const ca = contentArea();
-  if (how === 'left') f.x = ca.x;
-  if (how === 'hcenter') f.x = Math.round((W - f.w) / 2 * 100) / 100;
-  if (how === 'right') f.x = Math.round((ca.x + ca.w - f.w) * 100) / 100;
-  if (how === 'top') f.y = ca.y;
-  if (how === 'vcenter') f.y = Math.round((H - f.h) / 2 * 100) / 100;
-  if (how === 'bottom') f.y = Math.round((ca.y + ca.h - f.h) * 100) / 100;
-  if (how === 'fullw') { f.x = ca.x; f.w = ca.w; }
-  // 정렬한 기준선을 잠깐 보여 준다
+  const rd = v => Math.round(v * 100) / 100;
+  list.forEach(f => { f.manual = true; });
   guides = { x: [], y: [] };
-  if (how === 'hcenter') guides.x.push(W / 2);
-  if (how === 'vcenter') guides.y.push(H / 2);
-  if (how === 'left' || how === 'fullw') guides.x.push(ca.x);
-  if (how === 'right' || how === 'fullw') guides.x.push(ca.x + ca.w);
-  if (how === 'top') guides.y.push(ca.y);
-  if (how === 'bottom') guides.y.push(ca.y + ca.h);
+  if (list.length === 1) {
+    const f = list[0];
+    // 하나면 글 영역(용지) 기준
+    if (how === 'left') f.x = ca.x;
+    if (how === 'hcenter') f.x = rd((W - f.w) / 2);
+    if (how === 'right') f.x = rd(ca.x + ca.w - f.w);
+    if (how === 'top') f.y = ca.y;
+    if (how === 'vcenter') f.y = rd((H - f.h) / 2);
+    if (how === 'bottom') f.y = rd(ca.y + ca.h - f.h);
+    if (how === 'fullw') { f.x = ca.x; f.w = ca.w; }
+    if (how === 'hcenter') guides.x.push(W / 2);
+    if (how === 'vcenter') guides.y.push(H / 2);
+    if (how === 'left' || how === 'fullw') guides.x.push(ca.x);
+    if (how === 'right' || how === 'fullw') guides.x.push(ca.x + ca.w);
+    if (how === 'top') guides.y.push(ca.y);
+    if (how === 'bottom') guides.y.push(ca.y + ca.h);
+  } else {
+    // 여럿이면 고른 상자끼리(묶음의 바깥 테두리 기준)
+    const b = boundsOf(list);
+    if (how === 'left') { list.forEach(f => { f.x = rd(b.x); }); guides.x.push(b.x); }
+    if (how === 'right') { list.forEach(f => { f.x = rd(b.x + b.w - f.w); }); guides.x.push(b.x + b.w); }
+    if (how === 'hcenter') { const c = b.x + b.w / 2; list.forEach(f => { f.x = rd(c - f.w / 2); }); guides.x.push(c); }
+    if (how === 'top') { list.forEach(f => { f.y = rd(b.y); }); guides.y.push(b.y); }
+    if (how === 'bottom') { list.forEach(f => { f.y = rd(b.y + b.h - f.h); }); guides.y.push(b.y + b.h); }
+    if (how === 'vcenter') { const c = b.y + b.h / 2; list.forEach(f => { f.y = rd(c - f.h / 2); }); guides.y.push(c); }
+    if (how === 'fullw') { list.forEach(f => { f.x = ca.x; f.w = ca.w; }); guides.x.push(ca.x, ca.x + ca.w); }
+    if (how === 'groupHcenter') { const d = W / 2 - (b.x + b.w / 2); list.forEach(f => { f.x = rd(f.x + d); }); guides.x.push(W / 2); }
+    if (how === 'distV' && list.length >= 3) {
+      // 위에서 아래로: 첫 칸과 끝 칸은 그대로, 사이 간격을 똑같이
+      const s = [...list].sort((a, c) => a.y - c.y);
+      const gap = (b.h - s.reduce((a, f) => a + f.h, 0)) / (s.length - 1);
+      let y = s[0].y;
+      s.forEach(f => { f.y = rd(y); y += f.h + gap; });
+    }
+    if (how === 'distH' && list.length >= 3) {
+      const s = [...list].sort((a, c) => a.x - c.x);
+      const gap = (b.w - s.reduce((a, f) => a + f.w, 0)) / (s.length - 1);
+      let x = s[0].x;
+      s.forEach(f => { f.x = rd(x); x += f.w + gap; });
+    }
+  }
   clearTimeout(placeSelected.t);
   placeSelected.t = setTimeout(() => { guides = { x: [], y: [] }; refresh(); }, 900);
-  syncFieldInputs(f);
+  renderRibbon();
   refresh();
 }
 
@@ -767,6 +839,13 @@ function syncFieldInputs() { renderRibbon(); }
 
 let drag = null;
 let lastDownBox = null;
+
+function marqueeSvg() {
+  if (!drag || drag.mode !== 'marquee' || !drag.moved) return '';
+  const r = drag.rect;
+  return `<rect class="marquee" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"/>`;
+}
+
 $('#sheet').addEventListener('pointerdown', ev => {
   const svg = $('#page');
   if (!svg) return;
@@ -777,33 +856,94 @@ $('#sheet').addEventListener('pointerdown', ev => {
   }
   if (state.step !== 3) return;
   lastDownBox = box ? box.dataset.box : null;
-  const handle = ev.target.closest('[data-handle]');
-  if (!box) { closeEditor(); if (state.selected) selectField(null); return; }
-  const id = box.dataset.box;
-  const f = state.fields.find(x => x.id === id);
   const p = svgPoint(svg, ev);
-  drag = { id, mode: handle ? 'resize' : 'move', start: p, orig: { x: f.x, y: f.y, w: f.w, h: f.h }, moved: false };
-  if (state.selected !== id) { state.selected = id; renderRibbon(); }
+  const additive = ev.shiftKey || ev.ctrlKey || ev.metaKey;
   ev.preventDefault();
   $('#sheet').setPointerCapture(ev.pointerId);
+  if (!box) {
+    // 빈 곳을 끌면 상자 여러 개를 한 번에 고른다(Shift·Ctrl을 누르면 더하기)
+    closeEditor();
+    drag = { mode: 'marquee', start: p, rect: { x: p.x, y: p.y, w: 0, h: 0 }, base: additive ? [...selIds()] : [], additive, moved: false };
+    return;
+  }
+  const id = box.dataset.box;
+  if (ev.target.closest('[data-handle]')) {
+    // 크기 조절은 잡은 상자 하나만
+    if (!(selIds().length === 1 && isSel(id))) setSelection([id], id);
+    const f = f0(id);
+    drag = { mode: 'resize', id, start: p, orig: { x: f.x, y: f.y, w: f.w, h: f.h }, moved: false };
+    return;
+  }
+  let pendingToggle = null, pendingSingle = null;
+  if (additive) {
+    if (isSel(id)) pendingToggle = id;               // 끌지 않고 놓으면 빼기
+    else { state.sel = [...selIds(), id]; state.selected = id; renderRibbon(); }
+  } else if (!isSel(id)) {
+    state.sel = [id]; state.selected = id; renderRibbon();
+  } else {
+    state.selected = id; pendingSingle = id;         // 끌지 않고 놓으면 이 상자만
+    renderRibbon();
+  }
+  const origs = new Map(selFields().map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }]));
+  drag = { mode: 'move', id, start: p, origs, orig: boundsOf([...origs.values()]), moved: false, pendingToggle, pendingSingle };
+  refresh();
 });
+
 $('#sheet').addEventListener('pointermove', ev => {
   if (!drag) return;
   const svg = $('#page');
   const p = svgPoint(svg, ev);
-  const dx = p.x - drag.start.x, dy = p.y - drag.start.y;
-  if (Math.abs(dx) + Math.abs(dy) > 0.3) { drag.moved = true; f0(drag.id).manual = true; }
-  const f = state.fields.find(x => x.id === drag.id);
-  const r = snapBox(f, drag, dx, dy, state.snap && !ev.altKey, svg);
-  Object.assign(f, r.box);
+  let dx = p.x - drag.start.x, dy = p.y - drag.start.y;
+  if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 0.6) drag.moved = true;
+  if (!drag.moved) return;
+  if (drag.mode === 'marquee') {
+    const r = { x: Math.min(p.x, drag.start.x), y: Math.min(p.y, drag.start.y), w: Math.abs(dx), h: Math.abs(dy) };
+    drag.rect = r;
+    const hits = state.fields.filter(f => f.x < r.x + r.w && f.x + f.w > r.x && f.y < r.y + r.h && f.y + f.h > r.y).map(f => f.id);
+    state.sel = [...new Set([...drag.base, ...hits])];
+    state.selected = state.sel.includes(state.selected) ? state.selected : (state.sel[state.sel.length - 1] || null);
+    refresh();
+    return;
+  }
+  if (drag.mode === 'resize') {
+    const f = f0(drag.id);
+    f.manual = true;
+    const r = snapBox(drag.orig, 'resize', dx, dy, state.snap && !ev.altKey, svg, new Set([drag.id]), null);
+    Object.assign(f, r.box);
+    guides = r.guides;
+    refresh();
+    return;
+  }
+  // 옮기기: Shift를 누르면 많이 움직인 쪽(가로/세로)으로만
+  let lock = null;
+  if (ev.shiftKey) { lock = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'; if (lock === 'x') dy = 0; else dx = 0; }
+  drag.pendingToggle = null; drag.pendingSingle = null;
+  const r = snapBox(drag.orig, 'move', dx, dy, state.snap && !ev.altKey, svg, new Set(drag.origs.keys()), lock);
+  const ddx = r.box.x - drag.orig.x, ddy = r.box.y - drag.orig.y;
+  for (const [id, o] of drag.origs) {
+    const f = f0(id);
+    f.manual = true;
+    f.x = Math.round((o.x + ddx) * 100) / 100;
+    f.y = Math.round((o.y + ddy) * 100) / 100;
+  }
   guides = r.guides;
   refresh();
 });
+
 $('#sheet').addEventListener('pointerup', () => {
   if (!drag) return;
-  const id = drag.id;
+  const d = drag;
   drag = null;
   guides = { x: [], y: [] };
+  if (d.mode === 'marquee') {
+    if (!d.moved && !d.additive) { setSelection([], null); return; }
+    renderRibbon(); refresh();
+    return;
+  }
+  if (!d.moved) {
+    if (d.pendingToggle) { setSelection(selIds().filter(x => x !== d.pendingToggle)); return; }
+    if (d.pendingSingle && selIds().length > 1) { setSelection([d.pendingSingle], d.pendingSingle); return; }
+  }
   commitNow();
   renderRibbon();
   refresh();
@@ -872,7 +1012,7 @@ function positionEditor() {
   ed.style.top = `${Math.max(canvas.scrollTop + 8, top)}px`;
 }
 
-function markSelected() { $$('.field').forEach(el => el.classList.toggle('sel', el.dataset.field === state.selected)); }
+
 
 // ---------- 내보내기 ----------
 function allIndices() { return state.range === 'current' ? [state.current] : state.rows.map((_, i) => i); }
@@ -1212,7 +1352,11 @@ function bind() {
   });
 
   // 3단계: 상단 리본
-  const upd = (prop, v) => { const f = selField(); if (f) updateField(f.id, prop, v); };
+  // 여러 칸을 골랐으면 모두에 적용(위치·크기 숫자는 대표 칸만)
+  const upd = (prop, v) => {
+    const targets = ['x', 'y', 'w', 'h'].includes(prop) ? [selField()].filter(Boolean) : selFields();
+    targets.forEach(f => updateField(f.id, prop, v));
+  };
   $('#rbField').addEventListener('change', e => selectField(e.target.value));
   $('#rbFont').addEventListener('change', e => {
     const f = selField();
@@ -1221,8 +1365,7 @@ function bind() {
   });
   $('#rbSize').addEventListener('input', e => upd('size', e.target.value));
   $$('[data-size]').forEach(b => b.addEventListener('click', () => {
-    const f = selField(); if (!f) return;
-    upd('size', Math.max(4, f.size + Number(b.dataset.size)));
+    selFields().forEach(f => updateField(f.id, 'size', Math.max(4, f.size + Number(b.dataset.size))));
   }));
   $('#rbBold').addEventListener('click', () => { const f = selField(); if (f) upd('bold', !f.bold); });
   $('#rbColor').addEventListener('input', e => upd('color', e.target.value));
@@ -1235,7 +1378,7 @@ function bind() {
   $('#rbMinSpacing').addEventListener('input', e => upd('minSpacing', e.target.value));
   for (const k of ['x', 'y', 'w', 'h']) $(`#rb${k.toUpperCase()}`).addEventListener('input', e => upd(k, e.target.value));
   $('#rbText').addEventListener('click', () => { const f = selField(); if (f) openEditor(f.id, 'template'); });
-  $('#rbAutoField').addEventListener('click', () => { const f = selField(); if (f) { f.manual = false; renderRibbon(); refresh(); } });
+  $('#rbAutoField').addEventListener('click', () => { selFields().forEach(f => { f.manual = false; }); renderRibbon(); refresh(); });
   $('#rbAutoAll').addEventListener('click', () => {
     state.fields.forEach(f => { f.manual = false; });
     state.stamp.manual = false;
@@ -1307,16 +1450,18 @@ function bind() {
     }
     if (e.target.closest('input, textarea, select')) return;
     // 3단계에서 고른 상자는 방향키로 0.5mm(Shift: 5mm)씩 옮긴다
-    if (state.step === 3 && state.selected && e.key.startsWith('Arrow')) {
-      const f = state.fields.find(x => x.id === state.selected);
+    if (state.step === 3 && selIds().length && e.key.startsWith('Arrow')) {
       const st = e.shiftKey ? 5 : 0.5;
-      f.manual = true;
-      if (e.key === 'ArrowLeft') f.x -= st; if (e.key === 'ArrowRight') f.x += st;
-      if (e.key === 'ArrowUp') f.y -= st; if (e.key === 'ArrowDown') f.y += st;
-      f.x = Math.round(f.x * 100) / 100; f.y = Math.round(f.y * 100) / 100;
-      e.preventDefault(); syncFieldInputs(f); refresh(); return;
+      for (const f of selFields()) {
+        f.manual = true;
+        if (e.key === 'ArrowLeft') f.x -= st; if (e.key === 'ArrowRight') f.x += st;
+        if (e.key === 'ArrowUp') f.y -= st; if (e.key === 'ArrowDown') f.y += st;
+        f.x = Math.round(f.x * 100) / 100; f.y = Math.round(f.y * 100) / 100;
+      }
+      e.preventDefault(); renderRibbon(); refresh(); return;
     }
-    if (e.key === 'Escape') { if (openPop) { closePops(); return; } if (state.selected) { selectField(null); return; } }
+    if (state.step === 3 && mod && key === 'a') { e.preventDefault(); setSelection(state.fields.map(f => f.id), state.selected); return; }
+    if (e.key === 'Escape') { if (openPop) { closePops(); return; } if (selIds().length) { selectField(null); return; } }
     if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); zoomBy(1.2); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); zoomBy(1 / 1.2); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '0') { e.preventDefault(); state.zoom = 'fit'; applyZoom(); return; }

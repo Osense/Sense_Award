@@ -204,11 +204,17 @@
         </div>
       </div>
       <div class="pop" id="pop-place" hidden>
-        <h4>상자를 용지 기준으로 정렬</h4>
+        <h4 id="popPlaceTitle">상자를 글 영역 기준으로 정렬</h4>
         <div class="place-grid">
           <button data-place="left">왼쪽</button><button data-place="hcenter">가로 가운데</button><button data-place="right">오른쪽</button>
           <button data-place="top">위</button><button data-place="vcenter">세로 가운데</button><button data-place="bottom">아래</button>
-          <button data-place="fullw" class="span3">용지 안쪽 너비에 맞추기</button>
+          <button data-place="fullw" class="span3">글 영역 너비에 맞추기</button>
+        </div>
+        <div class="place-grid multi-only" hidden>
+          <button data-place="groupHcenter" class="span3">묶음째 용지 가로 가운데로</button>
+          <button data-place="distV" title="세 개 이상 고르면 쓸 수 있어요">세로 간격 같게</button>
+          <button data-place="distH" title="세 개 이상 고르면 쓸 수 있어요">가로 간격 같게</button>
+          <span></span>
         </div>
         <h4>위치와 크기 (mm)</h4>
         <div class="row four">
@@ -217,7 +223,8 @@
           <label class="lbl">너비<input type="number" id="rbW" step="0.5" min="5"></label>
           <label class="lbl">높이<input type="number" id="rbH" step="0.5" min="3"></label>
         </div>
-        <p class="hint">방향키로 0.5mm, Shift+방향키로 5mm씩 옮겨요.</p>
+        <p class="hint" id="posNote"></p>
+        <p class="hint">여러 상자: Shift·Ctrl을 누르고 누르거나, 빈 곳을 끌어 고르기 · Ctrl+A 모두 고르기<br>끌 때 Shift를 누르면 가로나 세로로만 움직여요 · 방향키 0.5mm, Shift+방향키 5mm</p>
       </div>
       <div class="pop" id="pop-stamp" hidden>
         <h4>수여자 도장</h4>
@@ -237,7 +244,7 @@
       </div>
     </div>
     <div class="stage-slot" data-slot="3"></div>
-    <div class="page-foot"><button class="ghost" data-goto="2">이전</button><span class="foot-hint">상자를 눌러 고르고, 두 번 누르면 문구를 고쳐요 · Ctrl+휠로 확대·축소</span><button class="primary" data-goto="4">다음: 확인·내보내기</button></div>
+    <div class="page-foot"><button class="ghost" data-goto="2">이전</button><span class="foot-hint">상자를 눌러 고르고 두 번 누르면 문구 편집 · Shift·Ctrl+누르기나 빈 곳 끌기로 여러 개 · 끌 때 Shift는 수평·수직 고정 · Ctrl+휠 확대</span><button class="primary" data-goto="4">다음: 확인·내보내기</button></div>
   </section>
 
   <!-- 4. 확인·내보내기 -->
