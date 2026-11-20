@@ -19,7 +19,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
 const STORE_KEY = 'sense-award:state:v3'; // 프로젝트 기능 전의 저장 자리(한 번 옮겨 담는다)
 const INDEX_KEY = 'sense-award:projects';
 const PKEY = id => `sense-award:project:${id}`;
-const LAYOUT_VERSION = 5;
+const LAYOUT_VERSION = 6;
 
 // ---------- 상태 ----------
 function freshState() {
@@ -56,7 +56,7 @@ function hydrate(raw) {
       const defs = Object.fromEntries(FIELD_DEFS.map(d => [d.id, d]));
       st.fields = st.fields.map(f => {
         const d = defs[f.id] || {};
-        return { ...f, manual: false, align: d.align ?? f.align, valign: d.valign ?? 'middle', spacing: d.spacing ?? 0, lineHeight: d.lineHeight ?? f.lineHeight };
+        return { ...f, manual: false, align: d.align ?? f.align, valign: d.valign ?? 'middle', spacing: d.spacing ?? 0, lineHeight: d.lineHeight ?? f.lineHeight, maxLines: d.maxLines ?? f.maxLines };
       });
       st.stamp = { ...st.stamp, manual: false };
       st.layoutVersion = LAYOUT_VERSION;

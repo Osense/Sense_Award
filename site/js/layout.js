@@ -31,12 +31,13 @@ function toChars(str, font, fallback) {
 }
 
 // 어절 단위 줄 나눔. 어절 하나가 한 줄보다 길면 그 어절만 글자 단위로 끊는다.
-// 문단 맨 앞 공백은 들여쓰기로 살린다(첫 줄에만, 늘리지 않는 고정 너비).
+// 문단 맨 앞 공백은 들여쓰기로 살린다(첫 줄에만, 공백 하나 = 한 칸 = 한글 한 글자 너비, 늘리지 않는 고정 너비).
 function wrapParagraph(par, width, sizeMm, scale, spacing, font, fallback, spaceEm) {
   const lead = (par.match(/^ +/) || [''])[0].length;
   const words = par.slice(lead).split(/ +/).filter((w, i, arr) => w.length || arr.length === 1);
   const spaceW = spaceEm * sizeMm * scale / 100 + spacing * sizeMm / 100;
-  const indentW = Math.min(lead * spaceW, width * 0.5);
+  // 원고지처럼 공백 하나 = 한 칸(한글 한 글자 너비)
+  const indentW = Math.min(lead * (sizeMm * scale / 100 + spacing * sizeMm / 100), width * 0.5);
   const lines = [];
   let cur = lead ? [{ indent: true, n: lead, w: indentW }] : [];
   let curW = lead ? indentW : 0;

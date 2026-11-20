@@ -162,7 +162,7 @@ export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
 
   // --- 꼬리: 날짜, 수여자(두 줄이면 칸을 키우되 아래 여백은 지킨다)
   const pLines = Math.min(3, lineN('presenter'));
-  const pH = P * (1.6 + (pLines - 1) * 1.45);
+  const pH = P * (1.6 + (pLines - 1) * 1.5);
   const pMaxBottom = C.y + C.h - 12 * g.k;          // 글 영역 아래 끝에서 12mm는 늘 비워 둔다
   const pY = Math.min(centered(Y(REF_MM.presenter), pH), pMaxBottom - pH);
   put('presenter', { x: bx, y: pY, w: bw, h: pH }, P, 0.7);
