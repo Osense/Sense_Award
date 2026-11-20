@@ -78,6 +78,31 @@ ${flower(m + 5.5, m + 5.5, 3, GOLD)}${flower(w - m - 5.5, m + 5.5, 3, GOLD)}${fl
 </svg>`;
 }
 
+
+// 많이 쓰는 시판 상장 용지 모양: 금색 이중 테두리, 오목한 모서리와 덩굴 장식 (A4, 테두리는 가장자리에서 약 21mm 안쪽)
+function goldFrameSvg(w, h) {
+  const m = 21, r = 5.2, gap = 2.3;
+  const concave = (inset, rad) => {
+    // 모서리를 안으로 오목하게 판 사각형 (원의 중심은 바깥 테두리 꼭짓점)
+    const off = inset - m;
+    const k = Math.sqrt(Math.max(rad * rad - off * off, 0));
+    const L = inset, T = inset, R = w - inset, B = h - inset;
+    const cl = m, ct = m, cr = w - m, cb = h - m;
+    return `M${cl + k} ${T} H${cr - k} A${rad} ${rad} 0 0 0 ${R} ${ct + k} V${cb - k} A${rad} ${rad} 0 0 0 ${cr - k} ${B} H${cl + k} A${rad} ${rad} 0 0 0 ${L} ${cb - k} V${ct + k} A${rad} ${rad} 0 0 0 ${cl + k} ${T} Z`;
+  };
+  // 오목한 모서리 끝에서 바깥으로 말려 나가는 덩굴 두 개 + 꼭짓점 점
+  const A = `M${r} 0 C${r - 1.8} 0 ${r - 3.6} -0.6 ${r - 4.3} -2.2 C${r - 4.9} -3.6 ${r - 3.8} -4.9 ${r - 2.5} -4.6 C${r - 1.3} -4.3 ${r - 1.2} -2.8 ${r - 2.2} -2.4 C${r - 2.9} -2.1 ${r - 3.5} -2.7 ${r - 3.2} -3.2`;
+  const B = A.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, '$2 $1');
+  const corner = (x, y, sx, sy) => `<g transform="translate(${x} ${y}) scale(${sx} ${sy})"><path d="${A} ${B}" fill="none" stroke="url(#gg)" stroke-width="0.65" stroke-linecap="round"/><circle cx="-0.9" cy="-0.9" r="0.6" fill="#d9a521"/></g>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm">
+<defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e9bf3c"/><stop offset=".45" stop-color="#f6dc7c"/><stop offset=".55" stop-color="#d9a521"/><stop offset="1" stop-color="#c38d17"/></linearGradient></defs>
+<rect width="${w}" height="${h}" fill="#fdfdfb"/>
+<path d="${concave(m, r)}" fill="none" stroke="url(#gg)" stroke-width="1.5"/>
+<path d="${concave(m + gap, r + gap)}" fill="none" stroke="#dcb04a" stroke-width="0.4"/>
+${corner(m, m, 1, 1)}${corner(w - m, m, -1, 1)}${corner(m, h - m, 1, -1)}${corner(w - m, h - m, -1, -1)}
+</svg>`;
+}
+
 // 칸 기본 서식
 const base = {
   font: 'chosun-gs', bold: false, color: '#111111',
@@ -102,7 +127,20 @@ function f(id, box, style) {
 
 export const PAPERS = [
   {
-    id: 'classic', name: '전통 문양', size: 'A4P', svg: classicSvg,
+    id: 'gold', name: '금색 테두리 (시판 기본형)', size: 'A4P', svg: goldFrameSvg, inset: 28,
+    fields: [
+      f('number', { x: 31, y: 32, w: 62, h: 8 }, { size: 11, minSize: 8 }),
+      f('title', { x: 52, y: 50, w: 106, h: 28 }, { size: 46, minSize: 28, align: 'distribute' }),
+      f('affiliation', { x: 96, y: 92, w: 83, h: 9 }, { size: 15, minSize: 10, align: 'right' }),
+      f('name', { x: 96, y: 103, w: 83, h: 13 }, { size: 21, minSize: 13, align: 'right' }),
+      f('body', { x: 33, y: 128, w: 144, h: 82 }, { size: 18, minSize: 12, align: 'justify', valign: 'top', lineHeight: 200, maxLines: 0 }),
+      f('date', { x: 33, y: 220, w: 144, h: 10 }, { size: 16, minSize: 11, align: 'center' }),
+      f('presenter', { x: 33, y: 242, w: 144, h: 15 }, { size: 23, minSize: 14, align: 'center' }),
+    ],
+    stamp: { size: 21, dx: -5, dy: 0 },
+  },
+  {
+    id: 'classic', name: '전통 문양', size: 'A4P', svg: classicSvg, inset: 26,
     fields: [
       f('number', { x: 30, y: 30, w: 62, h: 8 }, { size: 11, minSize: 8 }),
       f('title', { x: 52, y: 50, w: 106, h: 28 }, { size: 46, minSize: 28, align: 'distribute' }),
@@ -115,7 +153,7 @@ export const PAPERS = [
     stamp: { size: 21, dx: -5, dy: 0 },
   },
   {
-    id: 'simple', name: '단정한 이중선', size: 'A4P', svg: simpleSvg,
+    id: 'simple', name: '단정한 이중선', size: 'A4P', svg: simpleSvg, inset: 24,
     fields: [
       f('number', { x: 26, y: 24, w: 80, h: 8 }, { size: 11, minSize: 8 }),
       f('title', { x: 50, y: 42, w: 110, h: 30 }, { size: 48, minSize: 28, align: 'distribute' }),
@@ -128,7 +166,7 @@ export const PAPERS = [
     stamp: { size: 21, dx: -5, dy: 0 },
   },
   {
-    id: 'wide', name: '가로형 감사장', size: 'A4L', svg: wideSvg,
+    id: 'wide', name: '가로형 감사장', size: 'A4L', svg: wideSvg, inset: 26,
     fields: [
       f('number', { x: 28, y: 26, w: 90, h: 8 }, { size: 11, minSize: 8 }),
       f('title', { x: 98, y: 32, w: 101, h: 24 }, { size: 40, minSize: 24, align: 'distribute' }),

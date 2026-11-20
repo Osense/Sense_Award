@@ -1,7 +1,7 @@
 // 쎈스 어워드 — 화면과 상태
 import { FONTS, FontStore, DEFAULT_FONT, FALLBACK_FONT, fontInfo, variantKey } from './fonts.js';
 import { PAPERS, SIZES, SAMPLE, paperById, paperBackgroundSvg } from './papers.js';
-import { tableFromPaste, usedKeys, BUILTIN_VARS } from './data.js';
+import { tableFromPaste, usedKeys, fillTemplate, BUILTIN_VARS } from './data.js';
 import { computeRecord, fontKeysFor, textLayerSvg } from './render.js';
 import { buildPdf } from './export-pdf.js';
 import { buildHwpx, TEMPLATE_FILES } from './export-hwpx.js';
@@ -10,7 +10,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
-const STORE_KEY = 'sense-award:state:v1';
+const STORE_KEY = 'sense-award:state:v2';
 
 // ---------- 상태 ----------
 function freshState() {
@@ -23,12 +23,13 @@ function freshState() {
     columns: [...SAMPLE.columns],
     rows: clone(SAMPLE.rows),
     current: 0,
-    customBg: null,
+    customBg: null, useCustom: false,
     bgOpacity: 100,
+    overrides: [],
     offset: { x: 0, y: 0 },
     stamp: { enabled: false, src: null, png: null, imgW: 0, imgH: 0, white: true, red: false, ...paper.stamp },
     showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: false,
-    dataMode: 'paste', openField: 'body', selected: null,
+    dataMode: 'paste', openField: 'body', selected: null, snap: true,
   };
 }
 
@@ -55,7 +56,22 @@ function save() {
 }
 
 const paperSize = () => SIZES[state.size] || SIZES.A4P;
-const docView = () => ({ fields: state.fields, columns: state.columns, rows: state.rows, stamp: state.stamp });
+const docView = () => ({ fields: state.fields, columns: state.columns, rows: state.rows, stamp: state.stamp, overrides: state.overrides });
+const bgHref = () => (state.useCustom && state.customBg) ? state.customBg : svgDataUrl(paperBackgroundSvg(paperById(state.paperId)));
+
+// 직접 고친 내용은 명단 줄과 같은 순서로 따라다닌다
+function syncOverrides() {
+  if (!Array.isArray(state.overrides)) state.overrides = [];
+  while (state.overrides.length < state.rows.length) state.overrides.push({});
+  state.overrides.length = state.rows.length;
+  state.overrides = state.overrides.map(o => (o && typeof o === 'object') ? o : {});
+}
+function editedCount(i) { return Object.keys(state.overrides[i] || {}).length; }
+function recName(i) {
+  const row = state.rows[i] || [];
+  const ni = state.columns.indexOf('이름');
+  return (ni >= 0 ? row[ni] : row.find(v => v)) || '';
+}
 
 // ---------- 글꼴 ----------
 const store = new FontStore(window.fontkit, async p => {
@@ -77,46 +93,102 @@ async function ensureFonts(extraFallback = false) {
 // ---------- 단계 ----------
 function setStep(n) {
   state.step = n;
+  closeEditor();
   $$('#stepTabs button').forEach(b => b.classList.toggle('on', Number(b.dataset.step) === n));
-  $$('.panel .step').forEach(s => { s.hidden = Number(s.dataset.step) !== n; });
+  $$('.page').forEach(pg => { pg.hidden = Number(pg.dataset.step) !== n; });
+  const slot = $(`.stage-slot[data-slot="${n}"]`);
+  const stage = $('#stage');
+  if (slot) { slot.appendChild(stage); stage.hidden = false; } else stage.hidden = true;
+  document.body.dataset.step = n;
+  $('#boxToggle').hidden = n === 4;
+  if (n === 1) renderPapers();
   if (n === 2) renderData();
   if (n === 3) renderFields();
-  if (n === 4) renderSummary();
-  $('#panel').scrollTop = 0;
-  save();
+  if (n === 4) { renderSummary(); renderOffset(); }
+  $$('.page-scroll, .inspector').forEach(el => { el.scrollTop = 0; });
+  refresh();
+  requestAnimationFrame(applyZoom);
 }
 
 // ---------- 1. 용지 ----------
 function svgDataUrl(svg) { return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); }
 
-function renderPapers() {
-  $('#paperGrid').innerHTML = PAPERS.map(p => {
+function mergedFields(paper) {
+  // 위치·크기는 용지 것으로, 글꼴·문구는 사용자가 고른 대로
+  return clone(paper.fields).map(f => {
+    const old = state.fields.find(o => o.id === f.id);
+    return old ? { ...f, font: old.font, bold: old.bold, text: old.text, color: old.color } : f;
+  });
+}
+
+function sheetSvg(rec, size, href, opacity = 1, cls = '') {
+  const { w, h } = size;
+  let stamp = '';
+  if (rec.stamp && state.stamp.png) {
+    const st = rec.stamp;
+    stamp = `<image href="${state.stamp.png}" x="${st.x}" y="${st.y}" width="${st.w}" height="${st.h}" preserveAspectRatio="none"/>`;
+  }
+  const bg = href ? `<image href="${href}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="${href.startsWith('data:image/svg') ? 'xMidYMid meet' : 'none'}" opacity="${opacity}"/>` : '';
+  return `<svg class="${cls}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"><rect width="${w}" height="${h}" fill="#fff"/>${bg}<g>${textLayerSvg(rec)}</g>${stamp}</svg>`;
+}
+
+let galleryToken = 0;
+async function renderPapers() {
+  const token = ++galleryToken;
+  const cards = PAPERS.map(p => {
     const s = SIZES[p.size];
-    return `<button class="paper ${p.id === state.paperId ? 'on' : ''}" data-paper="${p.id}">
-      <span class="thumb" style="aspect-ratio:${s.w}/${s.h}"><img src="${svgDataUrl(paperBackgroundSvg(p))}" alt=""></span>
-      <b>${esc(p.name)}</b><small>${s.label}</small></button>`;
-  }).join('');
-  $('#sizeSel').innerHTML = Object.entries(SIZES).map(([k, v]) => `<option value="${k}" ${k === state.size ? 'selected' : ''}>${v.label} (${v.w}×${v.h}mm)</option>`).join('');
-  $('#bgOpacity').value = state.bgOpacity;
-  $('#offX').value = state.offset.x;
-  $('#offY').value = state.offset.y;
-  $('#bgClear').hidden = !state.customBg;
+    const on = !state.useCustom && p.id === state.paperId;
+    return `<button class="paper-card ${on ? 'on' : ''}" data-paper="${p.id}">
+      <span class="paper-view" style="aspect-ratio:${s.w}/${s.h}" data-view="${p.id}"><img src="${svgDataUrl(paperBackgroundSvg(p))}" alt=""></span>
+      <span class="paper-meta"><b>${esc(p.name)}</b><small>${s.label} · ${s.w}×${s.h}mm</small>${on ? '<em>선택됨</em>' : ''}</span></button>`;
+  });
+  const cs = paperSize();
+  const customOn = state.useCustom && state.customBg;
+  const custom = state.customBg
+    ? `<div class="paper-card custom ${customOn ? 'on' : ''}">
+        <button class="paper-view" style="aspect-ratio:${cs.w}/${cs.h}" data-custom="1" data-view="custom" aria-label="내 견본 고르기"><img src="${state.customBg}" alt=""></button>
+        <span class="paper-meta"><b>내 상장 용지</b><small>올린 견본 · 상자는 3단계에서 맞춰요</small>${customOn ? '<em>선택됨</em>' : ''}</span>
+        <div class="custom-opts">
+          <label class="lbl">용지 크기<select id="sizeSel">${Object.entries(SIZES).map(([k, v]) => `<option value="${k}" ${k === state.size ? 'selected' : ''}>${v.label} (${v.w}×${v.h}mm)</option>`).join('')}</select></label>
+          <label class="lbl">견본 진하기<input type="range" id="bgOpacity" min="20" max="100" step="5" value="${state.bgOpacity}"></label>
+          <div class="row"><button class="small" data-upload="1">다시 올리기</button><button class="small ghost danger" id="bgClear">지우기</button></div>
+        </div>
+      </div>`
+    : `<button class="paper-card upload" data-upload="1">
+        <span class="paper-view dashed" style="aspect-ratio:210/297"><span class="plus">+</span><span>내 상장 용지 올리기</span><small>갖고 있는 용지를 스캔하거나 사진으로 찍어 올리면 그 위에서 글 상자를 맞출 수 있어요</small></span>
+        <span class="paper-meta"><b>내 상장 용지</b><small>이미지 파일</small></span></button>`;
+  $('#paperGrid').innerHTML = cards.join('') + custom;
+  // 지금 명단의 첫 장으로 용지마다 실제 모습을 그린다
+  try { await ensureFonts(); } catch { return; }
+  if (token !== galleryToken) return;
+  const idx = Math.min(state.current, Math.max(0, state.rows.length - 1));
+  for (const p of PAPERS) {
+    const doc = { ...docView(), fields: mergedFields(p), stamp: { ...state.stamp, size: p.stamp.size, dx: p.stamp.dx, dy: p.stamp.dy } };
+    const rec = computeRecord(doc, idx, store);
+    const el = $(`[data-view="${p.id}"]`);
+    if (el) el.innerHTML = sheetSvg(rec, SIZES[p.size], svgDataUrl(paperBackgroundSvg(p)));
+  }
+  if (state.customBg) {
+    const rec = computeRecord(docView(), idx, store);
+    const el = $('[data-view="custom"]');
+    if (el) el.innerHTML = sheetSvg(rec, paperSize(), state.customBg, state.bgOpacity / 100);
+  }
 }
 
 function choosePaper(id) {
   const p = paperById(id);
-  const fonts = state.fields.map(f => [f.id, f.font, f.bold, f.text, f.color]);
+  state.fields = mergedFields(p);
   state.paperId = p.id;
   state.size = p.size;
-  state.customBg = null;
-  // 위치·크기는 새 용지 것으로, 글꼴·문구는 사용자가 고른 대로 유지
-  state.fields = clone(p.fields).map(f => {
-    const old = fonts.find(o => o[0] === f.id);
-    return old ? { ...f, font: old[1], bold: old[2], text: old[3], color: old[4] } : f;
-  });
+  state.useCustom = false;
   state.stamp = { ...state.stamp, size: p.stamp.size, dx: p.stamp.dx, dy: p.stamp.dy };
   renderPapers();
   refresh();
+}
+
+function renderOffset() {
+  $('#offX').value = state.offset.x;
+  $('#offY').value = state.offset.y;
 }
 
 // ---------- 2. 명단 ----------
@@ -130,8 +202,10 @@ function renderData() {
 
 function renderGrid() {
   const cols = state.columns;
+  // 긴 글이 든 항목(내용 등)은 칸을 넓게
+  const wideCols = new Set(cols.map((c, ci) => ci).filter(ci => state.rows.some(r => (r[ci] || '').length > 24)));
   const head = `<thead><tr><th class="idx">#</th>${cols.map((c, i) => `<th><div class="th"><input class="colname" data-col="${i}" value="${esc(c)}" aria-label="항목 이름"><button class="x" data-delcol="${i}" title="이 항목 빼기">×</button></div></th>`).join('')}<th></th></tr></thead>`;
-  const body = state.rows.map((r, ri) => `<tr class="${ri === state.current ? 'cur' : ''}"><td class="idx"><button class="link" data-goto-rec="${ri}">${ri + 1}</button></td>${cols.map((_, ci) => `<td><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(r[ci] ?? '')}"></td>`).join('')}<td><button class="x" data-delrow="${ri}" title="이 줄 빼기">×</button></td></tr>`).join('');
+  const body = state.rows.map((r, ri) => `<tr class="${ri === state.current ? 'cur' : ''}"><td class="idx"><button class="link" data-goto-rec="${ri}">${ri + 1}</button></td>${cols.map((_, ci) => `<td><input class="cell${wideCols.has(ci) ? ' wide' : ''}" data-r="${ri}" data-c="${ci}" value="${esc(r[ci] ?? '')}"></td>`).join('')}<td><button class="x" data-delrow="${ri}" title="이 줄 빼기">×</button></td></tr>`).join('');
   $('#grid').innerHTML = head + `<tbody>${body}</tbody>`;
   $('#rowCount').textContent = `${state.rows.length}명`;
 }
@@ -190,6 +264,7 @@ function applyPaste(text) {
   const oldCols = state.columns;
   state.columns = t.columns;
   state.rows = t.rows;
+  state.overrides = [];
   state.current = 0;
   renderData();
   refresh();
@@ -348,6 +423,8 @@ async function renderPreview() {
   const n = state.rows.length;
   if (state.current >= n) state.current = Math.max(0, n - 1);
   $('#recPos').textContent = n ? `${state.current + 1} / ${n}` : '명단 없음';
+  $('#recWho').textContent = n ? recName(state.current) : '';
+  syncOverrides();
   try { await ensureFonts(); } catch (e) { setStatus('글꼴을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'); return; }
   if (seq !== renderSeq) return;
   let rec = computeRecord(docView(), state.current, store);
@@ -358,11 +435,11 @@ async function renderPreview() {
   }
   lastRecord = rec;
   const { w, h } = paperSize();
-  const p = paperById(state.paperId);
   let bg = '';
   if (state.showBg) {
-    const href = state.customBg || svgDataUrl(paperBackgroundSvg(p));
-    const fit = state.customBg ? 'none' : 'xMidYMid meet';
+    const custom = state.useCustom && state.customBg;
+    const href = bgHref();
+    const fit = custom ? 'none' : 'xMidYMid meet';
     bg = `<image href="${href}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="${fit}" opacity="${state.bgOpacity / 100}"/>`;
   }
   let stamp = '';
@@ -371,13 +448,20 @@ async function renderPreview() {
     stamp = `<image href="${state.stamp.png}" x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" preserveAspectRatio="none"/>`;
   }
   let boxes = '';
-  if (state.showBoxes) {
+  if (state.step === 4) {
+    // 확인 단계: 상자는 숨기고, 글자를 누르면 그 상장만 고친다
     boxes = rec.fields.map(r => {
       const f = r.field;
-      const cls = ['box', r.overflow ? 'over' : '', state.selected === f.id ? 'sel' : ''].join(' ');
+      const cls = ['hit', r.edited ? 'edited' : '', r.overflow ? 'over' : '', editing && editing.field === f.id ? 'sel' : ''].join(' ');
+      return `<g class="${cls}" data-box="${f.id}"><rect class="area" x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}" rx="0.8"/>${r.edited ? `<text class="tag" x="${f.x + f.w}" y="${f.y - 0.9}" text-anchor="end">직접 고침</text>` : ''}${r.overflow ? `<text class="tag" x="${f.x + 0.6}" y="${f.y - 0.9}">넘침</text>` : ''}</g>`;
+    }).join('');
+  } else if (state.showBoxes) {
+    boxes = rec.fields.map(r => {
+      const f = r.field;
+      const cls = ['box', r.overflow ? 'over' : '', state.selected === f.id ? 'sel' : '', state.step === 3 ? 'drag' : ''].join(' ');
       return `<g class="${cls}" data-box="${f.id}">
         <rect class="area" x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}"/>
-        <text class="tag" x="${f.x + 0.6}" y="${f.y - 0.9}">${esc(f.label)}${r.overflow ? ' · 넘침' : ''}</text>
+        <text class="tag" x="${f.x + 0.6}" y="${f.y - 0.9}">${esc(f.label)}${r.overflow ? ' · 넘침' : ''}${r.edited ? ' · 직접 고침' : ''}</text>
         <rect class="handle" data-handle="${f.id}" x="${f.x + f.w - 2.2}" y="${f.y + f.h - 2.2}" width="4.4" height="4.4" rx="0.8"/>
       </g>`;
     }).join('');
@@ -387,9 +471,12 @@ async function renderPreview() {
     }
   }
   $('#sheet').innerHTML = `<svg id="page" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="aspect-ratio:${w}/${h}">
-    <rect width="${w}" height="${h}" fill="#fff"/>${bg}<g class="text-layer">${textLayerSvg(rec)}</g>${stamp}<g class="box-layer">${boxes}</g></svg>`;
+    <rect width="${w}" height="${h}" fill="#fff"/>${bg}<g class="text-layer">${textLayerSvg(rec)}</g>${stamp}<g class="box-layer">${boxes}</g><g class="guide-layer">${guideSvg()}</g></svg>`;
+  renderAlignBar();
   applyZoom();
+  positionEditor();
   updateBadges(rec);
+  if (state.step === 4) scheduleList();
   const msgs = [];
   if (rec.missing.length) msgs.push(`명단에 없는 변수: ${rec.missing.map(k => `{{${k}}}`).join(', ')}`);
   const over = rec.fields.filter(r => r.overflow).map(r => r.field.label);
@@ -445,12 +532,129 @@ function svgPoint(svg, ev) {
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
 
+// ---------- 가이드·맞춤 ----------
+let guides = { x: [], y: [] };
+
+function contentArea() {
+  const { w, h } = paperSize();
+  const inset = state.useCustom ? 20 : (paperById(state.paperId).inset || 20);
+  return { x: inset, y: inset, w: w - 2 * inset, h: h - 2 * inset };
+}
+
+// 끌고 있는 상자의 가장자리·가운데를 용지 가운데, 안쪽 여백, 다른 상자에 붙인다
+function snapBox(f, d, dx, dy, enabled, svg) {
+  const r2 = v => Math.round(v * 2) / 2;
+  const o = d.orig;
+  let box = d.mode === 'move'
+    ? { x: o.x + dx, y: o.y + dy, w: o.w, h: o.h }
+    : { x: o.x, y: o.y, w: Math.max(5, o.w + dx), h: Math.max(3, o.h + dy) };
+  const out = { x: [], y: [] };
+  if (!enabled) return { box: { x: r2(box.x), y: r2(box.y), w: r2(box.w), h: r2(box.h) }, guides: out };
+  const { w: W, h: H } = paperSize();
+  const ca = contentArea();
+  // 화면에서 6px 안이면 붙는다
+  const ctm = svg.getScreenCTM();
+  const tol = 6 / (ctm ? ctm.a : 3);
+  const tx = [W / 2, ca.x, ca.x + ca.w];
+  const ty = [H / 2, ca.y, ca.y + ca.h];
+  for (const g of state.fields) {
+    if (g.id === f.id) continue;
+    tx.push(g.x, g.x + g.w / 2, g.x + g.w);
+    ty.push(g.y, g.y + g.h / 2, g.y + g.h);
+  }
+  const best = (cands, targets) => {
+    let b = null;
+    for (const [off, val] of cands) for (const t of targets) {
+      const dd = t - val;
+      if (Math.abs(dd) <= tol && (!b || Math.abs(dd) < Math.abs(b.d))) b = { d: dd, t, off };
+    }
+    return b;
+  };
+  if (d.mode === 'move') {
+    const bx = best([[0, box.x], [0.5, box.x + box.w / 2], [1, box.x + box.w]], tx);
+    if (bx) box.x += bx.d; else box.x = r2(box.x);
+    const by = best([[0, box.y], [0.5, box.y + box.h / 2], [1, box.y + box.h]], ty);
+    if (by) box.y += by.d; else box.y = r2(box.y);
+    // 붙은 모든 선을 보여 준다
+    for (const t of new Set(tx)) if ([box.x, box.x + box.w / 2, box.x + box.w].some(v => Math.abs(v - t) < 0.01)) out.x.push(t);
+    for (const t of new Set(ty)) if ([box.y, box.y + box.h / 2, box.y + box.h].some(v => Math.abs(v - t) < 0.01)) out.y.push(t);
+  } else {
+    const bx = best([[1, box.x + box.w]], tx);
+    if (bx) box.w += bx.d; else box.w = r2(box.w);
+    const by = best([[1, box.y + box.h]], ty);
+    if (by) box.h += by.d; else box.h = r2(box.h);
+    if (bx) out.x.push(bx.t);
+    if (by) out.y.push(by.t);
+  }
+  const round = v => Math.round(v * 100) / 100;
+  return { box: { x: round(box.x), y: round(box.y), w: round(box.w), h: round(box.h) }, guides: out };
+}
+
+function guideSvg() {
+  const { w, h } = paperSize();
+  let s = '';
+  for (const x of guides.x) s += `<line class="guide${Math.abs(x - w / 2) < 0.01 ? ' mid' : ''}" x1="${x}" y1="0" x2="${x}" y2="${h}"/>`;
+  for (const y of guides.y) s += `<line class="guide${Math.abs(y - h / 2) < 0.01 ? ' mid' : ''}" x1="0" y1="${y}" x2="${w}" y2="${y}"/>`;
+  if (s && drag) {
+    const ca = contentArea();
+    s = `<rect class="content-area" x="${ca.x}" y="${ca.y}" width="${ca.w}" height="${ca.h}"/>` + s;
+  }
+  return s;
+}
+
+function placeSelected(how) {
+  const f = state.fields.find(x => x.id === state.selected);
+  if (!f) return;
+  const { w: W, h: H } = paperSize();
+  const ca = contentArea();
+  if (how === 'left') f.x = ca.x;
+  if (how === 'hcenter') f.x = Math.round((W - f.w) / 2 * 100) / 100;
+  if (how === 'right') f.x = Math.round((ca.x + ca.w - f.w) * 100) / 100;
+  if (how === 'top') f.y = ca.y;
+  if (how === 'vcenter') f.y = Math.round((H - f.h) / 2 * 100) / 100;
+  if (how === 'bottom') f.y = Math.round((ca.y + ca.h - f.h) * 100) / 100;
+  if (how === 'fullw') { f.x = ca.x; f.w = ca.w; }
+  // 정렬한 기준선을 잠깐 보여 준다
+  guides = { x: [], y: [] };
+  if (how === 'hcenter') guides.x.push(W / 2);
+  if (how === 'vcenter') guides.y.push(H / 2);
+  if (how === 'left' || how === 'fullw') guides.x.push(ca.x);
+  if (how === 'right' || how === 'fullw') guides.x.push(ca.x + ca.w);
+  if (how === 'top') guides.y.push(ca.y);
+  if (how === 'bottom') guides.y.push(ca.y + ca.h);
+  clearTimeout(placeSelected.t);
+  placeSelected.t = setTimeout(() => { guides = { x: [], y: [] }; refresh(); }, 900);
+  syncFieldInputs(f);
+  refresh();
+}
+
+function syncFieldInputs(f) {
+  const card = $(`.field[data-field="${f.id}"]`);
+  if (!card) return;
+  for (const k of ['x', 'y', 'w', 'h']) { const el = $(`input[data-prop="${k}"]`, card); if (el) el.value = f[k]; }
+  $$('[data-prop="align"]', card).forEach(b => b.classList.toggle('on', b.dataset.val === f.align));
+}
+
+function renderAlignBar() {
+  const f = state.step === 3 ? state.fields.find(x => x.id === state.selected) : null;
+  $('#alignBar').hidden = !f;
+  if (!f) return;
+  $('#abName').textContent = f.label;
+  $$('#alignBar [data-talign]').forEach(b => b.classList.toggle('on', b.dataset.talign === f.align));
+  $('#snapOn').checked = state.snap;
+}
+
 let drag = null;
 $('#sheet').addEventListener('pointerdown', ev => {
   const svg = $('#page');
   if (!svg) return;
-  const handle = ev.target.closest('[data-handle]');
   const box = ev.target.closest('[data-box]');
+  if (state.step === 4) {
+    if (box) { openEditor(box.dataset.box); ev.preventDefault(); } else closeEditor();
+    return;
+  }
+  if (state.step !== 3) return;
+  const handle = ev.target.closest('[data-handle]');
   if (!box) { if (state.selected) { state.selected = null; refresh(); markSelected(); } return; }
   const id = box.dataset.box;
   const f = state.fields.find(x => x.id === id);
@@ -467,21 +671,72 @@ $('#sheet').addEventListener('pointermove', ev => {
   const dx = p.x - drag.start.x, dy = p.y - drag.start.y;
   if (Math.abs(dx) + Math.abs(dy) > 0.3) drag.moved = true;
   const f = state.fields.find(x => x.id === drag.id);
-  const snap = v => Math.round(v * 2) / 2;
-  if (drag.mode === 'move') { f.x = snap(drag.orig.x + dx); f.y = snap(drag.orig.y + dy); }
-  else { f.w = Math.max(5, snap(drag.orig.w + dx)); f.h = Math.max(3, snap(drag.orig.h + dy)); }
+  const r = snapBox(f, drag, dx, dy, state.snap && !ev.altKey, svg);
+  Object.assign(f, r.box);
+  guides = r.guides;
   refresh();
 });
 $('#sheet').addEventListener('pointerup', () => {
   if (!drag) return;
   const id = drag.id;
   drag = null;
+  guides = { x: [], y: [] };
   state.openField = id;
-  if (state.step !== 3) setStep(3); else renderFields();
+  renderFields();
   refresh();
   const card = $(`.field[data-field="${id}"]`);
   if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 });
+
+// ---------- 이 상장만 직접 고치기 ----------
+let editing = null; // { field, index }
+function currentText(index, fieldId) {
+  const ov = state.overrides[index] && state.overrides[index][fieldId];
+  if (typeof ov === 'string') return ov;
+  const f = state.fields.find(x => x.id === fieldId);
+  return fillTemplate(f.text, state.columns, state.rows[index] || [], index).text;
+}
+function openEditor(fieldId) {
+  if (!state.rows.length) return;
+  syncOverrides();
+  const f = state.fields.find(x => x.id === fieldId);
+  editing = { field: fieldId, index: state.current };
+  $('#edTitle').textContent = `${state.current + 1}번 ${recName(state.current)} · ${f.label}`;
+  const ta = $('#edText');
+  ta.value = currentText(state.current, fieldId);
+  ta.rows = fieldId === 'body' ? 5 : 2;
+  $('#edReset').disabled = typeof state.overrides[state.current][fieldId] !== 'string';
+  $('#editor').hidden = false;
+  refresh();
+  requestAnimationFrame(() => { positionEditor(); ta.focus(); ta.select(); });
+}
+function closeEditor() {
+  if (!editing) return;
+  editing = null;
+  $('#editor').hidden = true;
+  refresh();
+  if (state.step === 4) scheduleList();
+}
+function positionEditor() {
+  if (!editing) return;
+  if (editing.index !== state.current) { closeEditor(); return; }
+  const area = $(`[data-box="${editing.field}"] .area`);
+  const canvas = $('#canvas');
+  const ed = $('#editor');
+  if (!area) return;
+  const r = area.getBoundingClientRect();
+  const c = canvas.getBoundingClientRect();
+  const width = Math.min(Math.max(r.width, 340), c.width - 24);
+  let left = r.left - c.left + canvas.scrollLeft + r.width / 2 - width / 2;
+  left = Math.max(canvas.scrollLeft + 12, Math.min(left, canvas.scrollLeft + c.width - width - 12));
+  let top = r.bottom - c.top + canvas.scrollTop + 8;
+  const edH = ed.offsetHeight || 160;
+  if (r.bottom + edH + 16 > c.bottom) top = r.top - c.top + canvas.scrollTop - edH - 8;
+  ed.style.width = `${width}px`;
+  ed.style.left = `${left}px`;
+  ed.style.top = `${Math.max(canvas.scrollTop + 8, top)}px`;
+}
+
 function markSelected() { $$('.field').forEach(el => el.classList.toggle('sel', el.dataset.field === state.selected)); }
 
 // ---------- 내보내기 ----------
@@ -489,29 +744,38 @@ function allIndices() { return state.range === 'current' ? [state.current] : sta
 
 async function renderSummary() {
   await ensureFonts(true).catch(() => {});
+  syncOverrides();
   const n = state.rows.length;
-  const over = [];
+  let overCount = 0;
   const missing = new Set();
+  const items = [];
   for (let i = 0; i < n; i++) {
     const r = computeRecord(docView(), i, store);
     r.missing.forEach(m => missing.add(m));
-    r.fields.filter(x => x.overflow).forEach(x => over.push(`${i + 1}번(${state.rows[i][state.columns.indexOf('이름')] || ''}) ${x.field.label}`));
+    const over = r.fields.filter(x => x.overflow).map(x => x.field.label);
+    overCount += over.length ? 1 : 0;
+    const ed = editedCount(i);
+    items.push(`<li class="${i === state.current ? 'cur' : ''}"><button data-rec="${i}"><span class="no">${i + 1}</span><span class="nm">${esc(recName(i)) || '(이름 없음)'}</span>${ed ? `<span class="tagc ed">고침 ${ed}</span>` : ''}${over.length ? `<span class="tagc ov">넘침</span>` : ''}</button></li>`);
   }
-  const p = paperById(state.paperId);
+  $('#recList').innerHTML = items.join('');
+  const editedTotal = state.overrides.filter((o, i) => i < n && Object.keys(o).length).length;
+  $('#listSum').textContent = `${n}장${editedTotal ? ` · 직접 고친 상장 ${editedTotal}` : ''}${overCount ? ` · 넘침 ${overCount}` : ''}`;
+  const cur = $('#recList li.cur');
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
   const usedFonts = [...new Set(state.fields.map(f => f.font))].map(id => fontInfo(id));
-  $('#summary').innerHTML = `<dl>
-    <dt>상장 수</dt><dd>${n}장</dd>
-    <dt>용지</dt><dd>${esc(state.customBg ? '내 견본' : p.name)} · ${paperSize().label}</dd>
-    <dt>글꼴</dt><dd>${usedFonts.map(f => esc(f.name)).join(', ')}</dd>
-    <dt>도장</dt><dd>${state.stamp.png ? '넣음' : '없음'}</dd>
-    <dt>위치 보정</dt><dd>가로 ${state.offset.x}mm · 세로 ${state.offset.y}mm</dd></dl>`;
   const warn = $('#warnBox');
-  const items = [];
-  if (missing.size) items.push(`명단에 없는 변수가 있어 빈칸으로 나가요: ${[...missing].map(k => `{{${esc(k)}}}`).join(', ')}`);
-  if (over.length) items.push(`글이 다 들어가지 않는 상장 ${over.length}곳: ${over.slice(0, 8).map(esc).join(', ')}${over.length > 8 ? ' 외' : ''}`);
-  warn.hidden = !items.length;
-  warn.innerHTML = items.map(t => `<p>${t}</p>`).join('');
+  const msgs = [];
+  if (missing.size) msgs.push(`명단에 없는 변수가 있어 빈칸으로 나가요: ${[...missing].map(k => `{{${esc(k)}}}`).join(', ')}`);
+  if (overCount) msgs.push(`글이 다 들어가지 않는 상장이 ${overCount}장 있어요. 목록에서 골라 글을 줄이거나, 3단계에서 상자를 키워 주세요.`);
+  warn.hidden = !msgs.length;
+  warn.innerHTML = msgs.map(t => `<p>${t}</p>`).join('');
   $('#fontLinks').innerHTML = usedFonts.map(f => `<li><b>${esc(f.name)}</b> <a href="${f.url}" target="_blank" rel="noopener">내려받는 곳</a> <span class="hint">${esc(f.license)}</span></li>`).join('');
+}
+
+let listTimer = 0;
+function scheduleList() {
+  clearTimeout(listTimer);
+  listTimer = setTimeout(() => { if (state.step === 4) renderSummary(); }, 350);
 }
 
 function download(bytes, name, type) {
@@ -539,7 +803,7 @@ function progress(done, total, label) {
 
 async function rasterBg() {
   const { w, h } = paperSize();
-  const href = state.customBg || svgDataUrl(paperBackgroundSvg(paperById(state.paperId)));
+  const href = bgHref();
   const im = await loadImage(href);
   const px = 150 / 25.4;
   const cv = document.createElement('canvas');
@@ -625,10 +889,29 @@ function bind() {
     renderPapers(); setStep(1); refresh();
   });
 
-  // 1단계
-  $('#paperGrid').addEventListener('click', e => { const b = e.target.closest('[data-paper]'); if (b) choosePaper(b.dataset.paper); });
-  $('#sizeSel').addEventListener('change', e => { state.size = e.target.value; refresh(); });
-  $('#bgOpacity').addEventListener('input', e => { state.bgOpacity = Number(e.target.value); refresh(); });
+  // 1단계 (용지 카드는 다시 그려지므로 위임으로 받는다)
+  $('#paperGrid').addEventListener('click', e => {
+    if (e.target.closest('[data-upload]')) { $('#bgFile').click(); return; }
+    if (e.target.closest('#bgClear')) {
+      state.customBg = null; state.useCustom = false;
+      state.size = paperById(state.paperId).size;
+      renderPapers(); refresh(); return;
+    }
+    if (e.target.closest('[data-custom]')) { state.useCustom = true; renderPapers(); refresh(); return; }
+    const b = e.target.closest('[data-paper]');
+    if (b) choosePaper(b.dataset.paper);
+  });
+  $('#paperGrid').addEventListener('change', e => {
+    if (e.target.id === 'sizeSel') { state.size = e.target.value; renderPapers(); refresh(); }
+  });
+  $('#paperGrid').addEventListener('input', e => {
+    if (e.target.id === 'bgOpacity') {
+      state.bgOpacity = Number(e.target.value);
+      const img = $('[data-view="custom"] svg image');
+      if (img) img.setAttribute('opacity', state.bgOpacity / 100);
+      refresh();
+    }
+  });
   $('#offX').addEventListener('input', e => { state.offset.x = parseFloat(e.target.value) || 0; save(); });
   $('#offY').addEventListener('input', e => { state.offset.y = parseFloat(e.target.value) || 0; save(); });
   $('#bgFile').addEventListener('change', async e => {
@@ -637,13 +920,51 @@ function bind() {
     const url = await fileToDataUrl(file);
     const im = await loadImage(url);
     state.customBg = await downscale(im, 2000);
+    state.useCustom = true;
     // 가로로 긴 견본이면 가로 용지로
     state.size = im.naturalWidth > im.naturalHeight ? 'A4L' : (SIZES[state.size].w > SIZES[state.size].h ? 'A4P' : state.size);
     e.target.value = '';
     renderPapers(); refresh();
-    setStatus('견본을 올렸어요. 글 상자를 끌어서 용지의 칸에 맞춰 주세요.');
   });
-  $('#bgClear').addEventListener('click', () => { state.customBg = null; renderPapers(); refresh(); });
+
+  // 상자 정렬 막대
+  $('#alignBar').addEventListener('click', e => {
+    const pl = e.target.closest('[data-place]');
+    if (pl) { placeSelected(pl.dataset.place); return; }
+    const ta = e.target.closest('[data-talign]');
+    if (ta) {
+      const f = state.fields.find(x => x.id === state.selected);
+      if (f) { f.align = ta.dataset.talign; syncFieldInputs(f); refresh(); }
+    }
+  });
+  $('#snapOn').addEventListener('change', e => { state.snap = e.target.checked; save(); });
+
+  // 직접 고치기
+  $('#edText').addEventListener('input', e => {
+    if (!editing) return;
+    syncOverrides();
+    state.overrides[editing.index][editing.field] = e.target.value;
+    $('#edReset').disabled = false;
+    refresh();
+  });
+  $('#edReset').addEventListener('click', () => {
+    if (!editing) return;
+    delete state.overrides[editing.index][editing.field];
+    $('#edText').value = currentText(editing.index, editing.field);
+    $('#edReset').disabled = true;
+    refresh();
+  });
+  $('#edDone').addEventListener('click', closeEditor);
+  $('#edText').addEventListener('keydown', e => { if (e.key === 'Escape') closeEditor(); });
+  $('#recList').addEventListener('click', e => {
+    const b = e.target.closest('[data-rec]');
+    if (!b) return;
+    closeEditor();
+    state.current = Number(b.dataset.rec);
+    $$('#recList li').forEach((li, i) => li.classList.toggle('cur', i === state.current));
+    refresh();
+  });
+  $('#canvas').addEventListener('scroll', positionEditor);
 
   // 2단계
   $$('.seg [data-mode]').forEach(b => b.addEventListener('click', () => { state.dataMode = b.dataset.mode; renderData(); save(); }));
@@ -671,7 +992,7 @@ function bind() {
     const dr = e.target.closest('[data-delrow]');
     const dc = e.target.closest('[data-delcol]');
     const go = e.target.closest('[data-goto-rec]');
-    if (dr) { state.rows.splice(Number(dr.dataset.delrow), 1); renderData(); refresh(); }
+    if (dr) { syncOverrides(); const i = Number(dr.dataset.delrow); state.rows.splice(i, 1); state.overrides.splice(i, 1); renderData(); refresh(); }
     if (dc) {
       const i = Number(dc.dataset.delcol);
       if (!confirm(`'${state.columns[i]}' 항목을 뺄까요?`)) return;
@@ -721,7 +1042,7 @@ function bind() {
   });
   $('#dDel').addEventListener('click', () => {
     if (!state.rows.length || !confirm('이 상장을 지울까요?')) return;
-    state.rows.splice(state.current, 1); state.current = Math.max(0, state.current - 1); renderDirect(); refresh();
+    syncOverrides(); state.overrides.splice(state.current, 1); state.rows.splice(state.current, 1); state.current = Math.max(0, state.current - 1); renderDirect(); refresh();
   });
   $('#directForm').addEventListener('input', e => {
     const c = e.target.closest('.dcell');
@@ -804,6 +1125,16 @@ function bind() {
   window.addEventListener('resize', applyZoom);
   document.addEventListener('keydown', e => {
     if (e.target.closest('input, textarea, select')) return;
+    // 3단계에서 고른 상자는 방향키로 0.5mm(Shift: 5mm)씩 옮긴다
+    if (state.step === 3 && state.selected && e.key.startsWith('Arrow')) {
+      const f = state.fields.find(x => x.id === state.selected);
+      const st = e.shiftKey ? 5 : 0.5;
+      if (e.key === 'ArrowLeft') f.x -= st; if (e.key === 'ArrowRight') f.x += st;
+      if (e.key === 'ArrowUp') f.y -= st; if (e.key === 'ArrowDown') f.y += st;
+      f.x = Math.round(f.x * 100) / 100; f.y = Math.round(f.y * 100) / 100;
+      e.preventDefault(); syncFieldInputs(f); refresh(); return;
+    }
+    if (e.key === 'Escape' && state.selected) { state.selected = null; markSelected(); refresh(); return; }
     if (e.key === 'ArrowRight' || e.key === 'PageDown') go(1);
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') go(-1);
   });
@@ -817,8 +1148,10 @@ function renderFieldsFontNote() {
 function go(d) {
   const n = state.rows.length;
   if (!n) return;
+  closeEditor();
   state.current = (state.current + d + n) % n;
   if (state.step === 2) { renderGrid(); renderDirect(); }
+  if (state.step === 4) $$('#recList li').forEach((li, i) => li.classList.toggle('cur', i === state.current));
   refresh();
 }
 
@@ -836,7 +1169,7 @@ async function downscale(im, maxSide) {
 
 // ---------- 시작 ----------
 bind();
-renderPapers();
+new ResizeObserver(() => { applyZoom(); positionEditor(); }).observe($('#canvas'));
 $('#showBg').checked = state.showBg;
 $('#showBoxes').checked = state.showBoxes;
 $('#zoomSel').value = state.zoom;

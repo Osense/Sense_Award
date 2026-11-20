@@ -3,7 +3,7 @@
   "private": true,
   "description": "쎈스 어워드 — 상장 일괄 생성 웹앱 (WSNS studio)",
   "scripts": {
-    "test": "node tools/smoke.mjs /tmp/sense-award-smoke classic && node tools/smoke.mjs /tmp/sense-award-smoke wide nanum-myeongjo",
+    "test": "node tools/smoke.mjs /tmp/sense-award-smoke gold && node tools/smoke.mjs /tmp/sense-award-smoke classic && node tools/smoke.mjs /tmp/sense-award-smoke wide nanum-myeongjo",
     "serve": "python3 -m http.server 8765 -d site"
   }
 }

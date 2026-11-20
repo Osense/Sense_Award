@@ -20,16 +20,19 @@ export function computeRecord(doc, index, store) {
   const missing = new Set();
   const fallback = store.get(variantKey(FALLBACK_FONT, false));
   for (const f of doc.fields) {
-    const { text, missing: ms } = fillTemplate(f.text, doc.columns, row, index);
+    // 이 상장만 직접 고친 글이 있으면 그것을 쓴다
+    const ov = doc.overrides && doc.overrides[index] ? doc.overrides[index][f.id] : undefined;
+    const edited = typeof ov === 'string';
+    const { text, missing: ms } = edited ? { text: ov, missing: [] } : fillTemplate(f.text, doc.columns, row, index);
     ms.forEach(m => missing.add(m));
     const font = store.get(variantKey(f.font, f.bold));
-    if (!font) { out.pending = true; out.fields.push({ field: f, text, pending: true }); continue; }
+    if (!font) { out.pending = true; out.fields.push({ field: f, text, edited, pending: true }); continue; }
     if (!fallback) {
       for (const ch of text) { const cp = ch.codePointAt(0); if (cp > 32 && !font.has(cp)) { out.needFallback = true; break; } }
     }
     const fb = fallback && fallback !== font ? fallback : null;
     const lay = layoutField(text, f, f, font, fb);
-    out.fields.push({ field: f, text, ...lay, font, fallback: fb, faux: needsFauxBold(f.font, f.bold) });
+    out.fields.push({ field: f, text, edited, ...lay, font, fallback: fb, faux: needsFauxBold(f.font, f.bold) });
   }
   out.missing = [...missing];
   out.stamp = stampPlacement(doc, out.fields);
