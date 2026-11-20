@@ -102,39 +102,93 @@
   </section>
 
   <!-- 3. 문구·배치 -->
-  <section class="page wide" data-step="3">
-    <div class="split work">
-      <div class="stage-slot" data-slot="3"></div>
-      <aside class="inspector">
-        <div class="page-head compact">
-          <small>3단계</small>
-          <h1>문구와 배치를 정해요</h1>
-          <p>미리보기의 상자를 끌어 옮기고, 모서리로 크기를 바꿔요. 글이 길면 장평 → 자간 → 글자 크기 순서로 자동으로 줄여요.</p>
+  <section class="page edit" data-step="3">
+    <div class="ribbon" id="ribbon">
+      <div class="rb-group">
+        <select id="rbField" title="고칠 칸" class="rb-field"></select>
+      </div>
+      <div class="rb-group">
+        <select id="rbFont" title="글꼴" class="rb-font"></select>
+        <div class="num-step" title="글자 크기(pt)">
+          <button data-size="-1" aria-label="글자 작게">−</button>
+          <input type="number" id="rbSize" step="0.5" min="4">
+          <button data-size="1" aria-label="글자 크게">+</button>
         </div>
-        <div class="card">
-          <label class="lbl">모든 칸 글꼴<select id="allFont"></select></label>
-          <p class="hint" id="fontNote"></p>
+        <button class="tog" id="rbBold" title="굵게"><b>가</b></button>
+        <label class="rb-color" title="글자 색"><input type="color" id="rbColor"><span></span></label>
+      </div>
+      <div class="rb-group seg-ic" id="rbAlign" title="상자 안 글자 가로 정렬">
+        <button data-align="left" title="왼쪽 정렬"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.5h8M2 10h12M2 13.5h8"/></svg></button>
+        <button data-align="center" title="가운데 정렬"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M4 6.5h8M2 10h12M4 13.5h8"/></svg></button>
+        <button data-align="right" title="오른쪽 정렬"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M6 6.5h8M2 10h12M6 13.5h8"/></svg></button>
+        <button data-align="justify" title="양쪽 정렬"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h7"/></svg></button>
+        <button data-align="distribute" title="균등 분배"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h12M2 2v13M14 2v13" stroke-dasharray="0"/></svg></button>
+      </div>
+      <div class="rb-group seg-ic" id="rbValign" title="상자 안 글자 세로 정렬">
+        <button data-valign="top" title="위"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12M5 5v9M8 5v6M11 5v8"/></svg></button>
+        <button data-valign="middle" title="세로 가운데"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h12M5 3v10M8 5v6M11 4v8"/></svg></button>
+        <button data-valign="bottom" title="아래"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 14h12M5 2v9M8 5v6M11 3v8"/></svg></button>
+      </div>
+      <div class="rb-group">
+        <label class="rb-num" title="줄 간격(%)">줄 간격<input type="number" id="rbLH" step="10" min="100"></label>
+        <label class="rb-num" title="최대 줄 수 (0 = 제한 없음)">최대 줄<input type="number" id="rbMax" step="1" min="0"></label>
+      </div>
+      <div class="rb-group">
+        <button class="drop" data-pop="fit">자동 맞춤</button>
+        <button class="drop" data-pop="place">배치</button>
+        <button class="rb-text" id="rbText" title="이 칸의 문구 고치기 (상자를 두 번 눌러도 돼요)">문구 편집</button>
+      </div>
+      <span class="rb-info" id="rbInfo"></span>
+      <span class="grow"></span>
+      <div class="rb-group">
+        <button class="drop" data-pop="stamp">도장</button>
+        <label class="check" title="끌 때 용지 가운데·여백·다른 상자에 붙기 (Alt를 누르면 잠시 끔)"><input type="checkbox" id="snapOn" checked> 가이드 맞춤</label>
+      </div>
+
+      <div class="pop" id="pop-fit" hidden>
+        <h4>글이 길 때 줄이는 한계</h4>
+        <p class="hint">장평 → 자간 → 글자 크기 순서로 이 값까지 줄여 맞춰요.</p>
+        <div class="row three">
+          <label class="lbl">최소 크기(pt)<input type="number" id="rbMinSize" step="0.5" min="4"></label>
+          <label class="lbl">최소 장평(%)<input type="number" id="rbMinScale" step="1" min="50" max="100"></label>
+          <label class="lbl">최소 자간(%)<input type="number" id="rbMinSpacing" step="1" min="-30" max="0"></label>
         </div>
-        <div id="fieldList" class="field-list"></div>
-        <div class="card" id="stampCard">
-          <h3>수여자 도장</h3>
-          <p class="hint">도장 이미지를 올리면 수여자 끝 글자에 걸치게 찍혀요.</p>
-          <div class="row">
-            <label class="file-btn">도장 이미지 올리기<input type="file" id="stampFile" accept="image/*"></label>
-            <button class="ghost small" id="stampClear" hidden>도장 지우기</button>
-          </div>
-          <div class="stamp-preview" id="stampPreview" hidden></div>
-          <label class="check"><input type="checkbox" id="stampWhite" checked> 흰 바탕 투명하게</label>
-          <label class="check"><input type="checkbox" id="stampRed"> 붉은색으로 맞추기</label>
-          <div class="row three">
-            <label class="lbl">크기(mm)<input type="number" id="stampSize" step="0.5" min="5"></label>
-            <label class="lbl">좌우(mm)<input type="number" id="stampDx" step="0.5"></label>
-            <label class="lbl">위아래(mm)<input type="number" id="stampDy" step="0.5"></label>
-          </div>
+      </div>
+      <div class="pop" id="pop-place" hidden>
+        <h4>상자를 용지 기준으로 정렬</h4>
+        <div class="place-grid">
+          <button data-place="left">왼쪽</button><button data-place="hcenter">가로 가운데</button><button data-place="right">오른쪽</button>
+          <button data-place="top">위</button><button data-place="vcenter">세로 가운데</button><button data-place="bottom">아래</button>
+          <button data-place="fullw" class="span3">용지 안쪽 너비에 맞추기</button>
         </div>
-      </aside>
+        <h4>위치와 크기 (mm)</h4>
+        <div class="row four">
+          <label class="lbl">가로<input type="number" id="rbX" step="0.5"></label>
+          <label class="lbl">세로<input type="number" id="rbY" step="0.5"></label>
+          <label class="lbl">너비<input type="number" id="rbW" step="0.5" min="5"></label>
+          <label class="lbl">높이<input type="number" id="rbH" step="0.5" min="3"></label>
+        </div>
+        <p class="hint">방향키로 0.5mm, Shift+방향키로 5mm씩 옮겨요.</p>
+      </div>
+      <div class="pop" id="pop-stamp" hidden>
+        <h4>수여자 도장</h4>
+        <p class="hint">도장 이미지를 올리면 수여자 끝 글자에 걸치게 찍혀요.</p>
+        <div class="row">
+          <label class="file-btn">도장 이미지 올리기<input type="file" id="stampFile" accept="image/*"></label>
+          <button class="ghost small" id="stampClear" hidden>도장 지우기</button>
+        </div>
+        <div class="stamp-preview" id="stampPreview" hidden></div>
+        <label class="check"><input type="checkbox" id="stampWhite" checked> 흰 바탕 투명하게</label>
+        <label class="check"><input type="checkbox" id="stampRed"> 붉은색으로 맞추기</label>
+        <div class="row three">
+          <label class="lbl">크기(mm)<input type="number" id="stampSize" step="0.5" min="5"></label>
+          <label class="lbl">좌우(mm)<input type="number" id="stampDx" step="0.5"></label>
+          <label class="lbl">위아래(mm)<input type="number" id="stampDy" step="0.5"></label>
+        </div>
+      </div>
     </div>
-    <div class="page-foot"><button class="ghost" data-goto="2">이전</button><button class="primary" data-goto="4">다음: 확인·내보내기</button></div>
+    <div class="stage-slot" data-slot="3"></div>
+    <div class="page-foot"><button class="ghost" data-goto="2">이전</button><span class="foot-hint">상자를 눌러 고르고, 두 번 누르면 문구를 고쳐요 · Ctrl+휠로 확대·축소</span><button class="primary" data-goto="4">다음: 확인·내보내기</button></div>
   </section>
 
   <!-- 4. 확인·내보내기 -->
@@ -196,43 +250,20 @@
     <div class="toggles">
       <label class="check"><input type="checkbox" id="showBg" checked> 견본 테두리</label>
       <label class="check" id="boxToggle"><input type="checkbox" id="showBoxes" checked> 글 상자</label>
-      <select id="zoomSel" aria-label="확대">
-        <option value="fit">화면에 맞춤</option>
-        <option value="0.75">75%</option>
-        <option value="1">100%</option>
-        <option value="1.5">150%</option>
-      </select>
+      <div class="zoom" title="Ctrl+마우스 휠로도 확대·축소할 수 있어요">
+        <button class="ghost small" id="zoomOut" aria-label="축소">−</button>
+        <button class="ghost small zv" id="zoomVal" title="화면에 맞추기">100%</button>
+        <button class="ghost small" id="zoomIn" aria-label="확대">+</button>
+        <button class="ghost small" id="zoomFit">맞춤</button>
+      </div>
     </div>
-  </div>
-  <div class="align-bar" id="alignBar" hidden>
-    <b id="abName"></b>
-    <div class="ab-group" title="상자를 용지 기준으로 정렬">
-      <span class="ab-label">상자 위치</span>
-      <button data-place="left" title="용지 안쪽 왼쪽에 붙이기">왼쪽</button>
-      <button data-place="hcenter" title="용지 가로 가운데">가로 가운데</button>
-      <button data-place="right" title="용지 안쪽 오른쪽에 붙이기">오른쪽</button>
-      <span class="ab-sep"></span>
-      <button data-place="top" title="용지 안쪽 위에 붙이기">위</button>
-      <button data-place="vcenter" title="용지 세로 가운데">세로 가운데</button>
-      <button data-place="bottom" title="용지 안쪽 아래에 붙이기">아래</button>
-      <span class="ab-sep"></span>
-      <button data-place="fullw" title="용지 안쪽 너비에 맞추기">너비 맞춤</button>
-    </div>
-    <div class="ab-group" title="상자 안 글자 정렬">
-      <span class="ab-label">글자</span>
-      <button data-talign="left">왼쪽</button>
-      <button data-talign="center">가운데</button>
-      <button data-talign="right">오른쪽</button>
-      <button data-talign="justify">양쪽</button>
-      <button data-talign="distribute">균등</button>
-    </div>
-    <label class="check snap-toggle"><input type="checkbox" id="snapOn" checked> 가이드 맞춤</label>
   </div>
   <div class="canvas" id="canvas">
     <div class="sheet" id="sheet"></div>
     <div class="editor" id="editor" hidden>
-      <div class="editor-head"><b id="edTitle"></b><span class="hint">이 상장에만 적용돼요</span></div>
+      <div class="editor-head"><b id="edTitle"></b><span class="hint" id="edHint">이 상장에만 적용돼요</span></div>
       <textarea id="edText" rows="3"></textarea>
+      <div class="chips small" id="edChips" hidden></div>
       <div class="editor-foot">
         <button class="small ghost" id="edReset">원래 문구로</button>
         <span class="grow"></span>

@@ -1,6 +1,6 @@
 // 쎈스 어워드 — 화면과 상태
 import { FONTS, FontStore, DEFAULT_FONT, FALLBACK_FONT, fontInfo, variantKey } from './fonts.js';
-import { PAPERS, SIZES, SAMPLE, paperById, paperBackgroundSvg } from './papers.js';
+import { PAPERS, SIZES, SAMPLE, FIELD_DEFS, paperById, paperBackgroundSvg } from './papers.js';
 import { tableFromPaste, usedKeys, fillTemplate, BUILTIN_VARS } from './data.js';
 import { computeRecord, fontKeysFor, textLayerSvg } from './render.js';
 import { buildPdf } from './export-pdf.js';
@@ -103,7 +103,7 @@ function setStep(n) {
   $('#boxToggle').hidden = n === 4;
   if (n === 1) renderPapers();
   if (n === 2) renderData();
-  if (n === 3) renderFields();
+  if (n === 3) renderRibbon();
   if (n === 4) { renderSummary(); renderOffset(); }
   $$('.page-scroll, .inspector').forEach(el => { el.scrollTop = 0; });
   refresh();
@@ -271,7 +271,7 @@ function applyPaste(text) {
   const unknown = new Set();
   state.fields.forEach(f => usedKeys(f.text).forEach(k => { if (!t.columns.includes(k) && !BUILTIN_VARS.includes(k)) unknown.add(k); }));
   setStatus(`${t.rows.length}명을 불러왔어요.` + (unknown.size ? ` 문구에 쓴 변수 중 명단에 없는 항목: ${[...unknown].join(', ')} — 3단계에서 바꿔 주세요.` : ''));
-  if (oldCols.join() !== t.columns.join()) renderFields();
+  if (oldCols.join() !== t.columns.join()) renderRibbon();
 }
 
 function renameColumn(i, name) {
@@ -293,42 +293,80 @@ function fontOptions(sel) {
   return FONTS.map(f => `<option value="${f.id}" ${f.id === sel ? 'selected' : ''}>${esc(f.name)} (${f.kind})</option>`).join('');
 }
 
-function renderFields() {
-  const allSame = state.fields.every(f => f.font === state.fields[0].font);
-  $('#allFont').innerHTML = (allSame ? '' : '<option value="">칸마다 다름</option>') + fontOptions(allSame ? state.fields[0].font : '');
-  const fi = fontInfo(state.fields[0].font);
-  $('#fontNote').textContent = `${fi.name}: ${fi.license}`;
-  $('#fieldList').innerHTML = state.fields.map(f => fieldCard(f)).join('');
-  renderStampCard();
+function selField() { return state.fields.find(x => x.id === state.selected) || null; }
+
+// 상단 리본: 고른 칸의 서식을 보여 주고 바로 고친다 (칸을 안 고르면 글꼴은 모든 칸에)
+function renderRibbon() {
+  if (!$('#ribbon')) return;
+  const f = selField();
+  $('#rbField').innerHTML = `<option value="">${f ? '칸 고르기' : '칸을 누르거나 고르세요'}</option>`
+    + state.fields.map(x => `<option value="${x.id}" ${f && f.id === x.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
+  const allSame = state.fields.every(x => x.font === state.fields[0].font);
+  const fontSel = f ? f.font : (allSame ? state.fields[0].font : '');
+  $('#rbFont').innerHTML = (f ? '' : `<option value="" ${fontSel ? '' : 'selected'} disabled>모든 칸 글꼴…</option>`)
+    + FONTS.map(x => `<option value="${x.id}" ${x.id === fontSel ? 'selected' : ''}>${esc(x.name)}${f ? '' : ' (모든 칸)'}</option>`).join('');
+  $('#rbFont').title = f ? `${f.label} 글꼴` : '모든 칸 글꼴 한 번에 바꾸기';
+  const dis = !f;
+  $$('#ribbon [data-need-field], #rbSize, #rbBold, #rbColor, #rbAlign button, #rbValign button, #rbLH, #rbMax, #ribbon [data-pop="fit"], #ribbon [data-pop="place"], #rbText, [data-size]')
+    .forEach(el => { el.disabled = dis; });
+  $('#ribbon').classList.toggle('nosel', dis);
+  if (!f) { $('#rbInfo').textContent = ''; closePops(['fit', 'place']); return; }
+  $('#rbSize').value = f.size;
+  $('#rbBold').classList.toggle('on', !!f.bold);
+  $('#rbColor').value = f.color || '#111111';
+  $('.rb-color span').style.background = f.color || '#111111';
+  $$('#rbAlign button').forEach(b => b.classList.toggle('on', b.dataset.align === f.align));
+  $$('#rbValign button').forEach(b => b.classList.toggle('on', b.dataset.valign === f.valign));
+  $('#rbLH').value = f.lineHeight;
+  $('#rbMax').value = f.maxLines;
+  $('#rbMinSize').value = f.minSize;
+  $('#rbMinScale').value = f.minScale;
+  $('#rbMinSpacing').value = f.minSpacing;
+  for (const k of ['x', 'y', 'w', 'h']) { const el = $(`#rb${k.toUpperCase()}`); if (el !== document.activeElement) el.value = f[k]; }
+  ribbonInfo();
 }
 
-function fieldCard(f) {
-  const open = state.openField === f.id;
-  const keys = [...state.columns, ...BUILTIN_VARS];
-  const seg = (name, list, val) => `<div class="seg mini">${list.map(([v, l]) => `<button data-prop="${name}" data-val="${v}" class="${val === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-  const num = (prop, label, step = 1, extra = '') => `<label class="lbl">${label}<input type="number" data-prop="${prop}" value="${f[prop]}" step="${step}" ${extra}></label>`;
-  return `<div class="field ${open ? 'open' : ''} ${state.selected === f.id ? 'sel' : ''}" data-field="${f.id}">
-    <button class="field-head" data-toggle="${f.id}">
-      <b>${esc(f.label)}</b><span class="sum">${esc(f.text)}</span><span class="badge" data-badge="${f.id}"></span><span class="chev">${open ? '−' : '+'}</span>
-    </button>
-    <div class="field-body" ${open ? '' : 'hidden'}>
-      <label class="lbl block">문구<textarea data-prop="text" rows="${f.id === 'body' ? 4 : 2}">${esc(f.text)}</textarea></label>
-      <div class="chips small">${keys.map(k => `<button class="chip" data-insert="{{${esc(k)}}}">{{${esc(k)}}}</button>`).join('')}</div>
-      <div class="row two">
-        <label class="lbl">글꼴<select data-prop="font">${fontOptions(f.font)}</select></label>
-        <div class="row tight"><label class="check"><input type="checkbox" data-prop="bold" ${f.bold ? 'checked' : ''}> 굵게</label>
-        <label class="lbl color">색<input type="color" data-prop="color" value="${f.color}"></label></div>
-      </div>
-      <div class="row two">${num('size', '글자 크기(pt)', 0.5, 'min="4"')}${num('minSize', '최소 크기(pt)', 0.5, 'min="4"')}</div>
-      <div class="lbl">가로 정렬</div>${seg('align', ALIGNS, f.align)}
-      <div class="lbl">세로 정렬</div>${seg('valign', VALIGNS, f.valign)}
-      <div class="row two">${num('maxLines', '최대 줄 수 (0=제한 없음)', 1, 'min="0"')}${num('lineHeight', '줄 간격(%)', 5, 'min="100"')}</div>
-      <div class="row two">${num('minScale', '최소 장평(%)', 1, 'min="50" max="100"')}${num('minSpacing', '최소 자간(%)', 1, 'min="-30" max="0"')}</div>
-      <details class="pos"><summary>위치와 크기 (mm) — 미리보기에서 끌어서 옮겨도 돼요</summary>
-        <div class="row four">${num('x', '가로', 0.5)}${num('y', '세로', 0.5)}${num('w', '너비', 0.5, 'min="5"')}${num('h', '높이', 0.5, 'min="3"')}</div>
-      </details>
-    </div>
-  </div>`;
+function ribbonInfo() {
+  const f = selField();
+  const el = $('#rbInfo');
+  if (!el) return;
+  const r = f && lastRecord ? lastRecord.fields.find(x => x.field.id === f.id) : null;
+  if (!r || r.pending) { el.textContent = ''; el.className = 'rb-info'; return; }
+  const shrunk = r.sizePt < f.size || r.scale < 100 || r.spacing < 0;
+  el.textContent = r.overflow ? '이 장에서 글이 넘쳐요' : shrunk ? `이 장: ${r.sizePt}pt · 장평 ${r.scale}% · 자간 ${r.spacing}%` : '';
+  el.className = 'rb-info' + (r.overflow ? ' over' : shrunk ? ' fit' : '');
+}
+
+let openPop = null;
+function togglePop(name) {
+  const was = openPop;
+  closePops();
+  if (was === name) return;
+  const pop = $(`#pop-${name}`);
+  const btn = $(`#ribbon [data-pop="${name}"]`);
+  if (!pop || !btn || btn.disabled) return;
+  if (name === 'stamp') renderStampCard();
+  pop.hidden = false;
+  btn.classList.add('on');
+  const rb = $('#ribbon').getBoundingClientRect();
+  const br = btn.getBoundingClientRect();
+  pop.style.left = `${Math.max(8, Math.min(br.left - rb.left, rb.width - pop.offsetWidth - 8))}px`;
+  openPop = name;
+}
+function closePops(only) {
+  $$('#ribbon .pop').forEach(p => {
+    const n = p.id.replace('pop-', '');
+    if (only && !only.includes(n)) return;
+    p.hidden = true;
+    const b = $(`#ribbon [data-pop="${n}"]`); if (b) b.classList.remove('on');
+    if (openPop === n) openPop = null;
+  });
+}
+
+function selectField(id) {
+  state.selected = id || null;
+  renderRibbon();
+  refresh();
 }
 
 function renderStampCard() {
@@ -354,7 +392,7 @@ function updateField(id, prop, value) {
     if (prop === 'size' && f.minSize > v) f.minSize = v;
     if (prop === 'minSize' && v > f.size) f.size = v;
   } else f[prop] = value;
-  if (prop === 'text') { const sum = $(`.field[data-field="${id}"] .sum`); if (sum) sum.textContent = value; }
+  if (prop !== 'text') renderRibbon();
   refresh();
 }
 
@@ -472,7 +510,7 @@ async function renderPreview() {
   }
   $('#sheet').innerHTML = `<svg id="page" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="aspect-ratio:${w}/${h}">
     <rect width="${w}" height="${h}" fill="#fff"/>${bg}<g class="text-layer">${textLayerSvg(rec)}</g>${stamp}<g class="box-layer">${boxes}</g><g class="guide-layer">${guideSvg()}</g></svg>`;
-  renderAlignBar();
+  ribbonInfo();
   applyZoom();
   positionEditor();
   updateBadges(rec);
@@ -495,20 +533,42 @@ function updateBadges(rec) {
   }
 }
 
-function applyZoom() {
-  const svg = $('#page');
-  if (!svg) return;
+const PX_PER_MM = 96 / 25.4;
+function fitScale() {
   const { w, h } = paperSize();
   const canvas = $('#canvas');
-  let scale;
-  if (state.zoom === 'fit') {
-    const pad = 48;
-    const sw = (canvas.clientWidth - pad) / w;
-    const sh = (canvas.clientHeight - pad) / h;
-    scale = Math.max(0.5, Math.min(sw, sh));
-  } else scale = Number(state.zoom) * 96 / 25.4;
-  svg.style.width = `${w * scale}px`;
-  svg.style.height = `${h * scale}px`;
+  const pad = 56;
+  return Math.max(0.3, Math.min((canvas.clientWidth - pad) / w, (canvas.clientHeight - pad) / h));
+}
+function currentScale() { return state.zoom === 'fit' ? fitScale() : Number(state.zoom) * PX_PER_MM; }
+
+function applyZoom() {
+  const svg = $('#page');
+  const { w, h } = paperSize();
+  const scale = currentScale();
+  if (svg) { svg.style.width = `${w * scale}px`; svg.style.height = `${h * scale}px`; }
+  $('#zoomVal').textContent = `${Math.round(scale / PX_PER_MM * 100)}%`;
+  $('#zoomFit').classList.toggle('on', state.zoom === 'fit');
+  positionEditor();
+}
+
+function zoomBy(k, cx, cy) {
+  const canvas = $('#canvas');
+  const svg = $('#page');
+  if (!svg) return;
+  const old = currentScale();
+  const next = Math.min(6 * PX_PER_MM, Math.max(0.25 * PX_PER_MM, old * k));
+  // 마우스(없으면 화면 가운데) 아래 지점이 그대로 있도록 스크롤을 맞춘다
+  const cr = canvas.getBoundingClientRect();
+  const px = cx ?? cr.left + cr.width / 2, py = cy ?? cr.top + cr.height / 2;
+  const sr = svg.getBoundingClientRect();
+  const mx = (px - sr.left) / old, my = (py - sr.top) / old;
+  state.zoom = next / PX_PER_MM;
+  applyZoom();
+  const nr = svg.getBoundingClientRect();
+  canvas.scrollLeft += (nr.left + mx * next) - px;
+  canvas.scrollTop += (nr.top + my * next) - py;
+  save();
 }
 
 let refreshQueued = false;
@@ -628,23 +688,10 @@ function placeSelected(how) {
   refresh();
 }
 
-function syncFieldInputs(f) {
-  const card = $(`.field[data-field="${f.id}"]`);
-  if (!card) return;
-  for (const k of ['x', 'y', 'w', 'h']) { const el = $(`input[data-prop="${k}"]`, card); if (el) el.value = f[k]; }
-  $$('[data-prop="align"]', card).forEach(b => b.classList.toggle('on', b.dataset.val === f.align));
-}
-
-function renderAlignBar() {
-  const f = state.step === 3 ? state.fields.find(x => x.id === state.selected) : null;
-  $('#alignBar').hidden = !f;
-  if (!f) return;
-  $('#abName').textContent = f.label;
-  $$('#alignBar [data-talign]').forEach(b => b.classList.toggle('on', b.dataset.talign === f.align));
-  $('#snapOn').checked = state.snap;
-}
+function syncFieldInputs() { renderRibbon(); }
 
 let drag = null;
+let lastDownBox = null;
 $('#sheet').addEventListener('pointerdown', ev => {
   const svg = $('#page');
   if (!svg) return;
@@ -654,13 +701,14 @@ $('#sheet').addEventListener('pointerdown', ev => {
     return;
   }
   if (state.step !== 3) return;
+  lastDownBox = box ? box.dataset.box : null;
   const handle = ev.target.closest('[data-handle]');
-  if (!box) { if (state.selected) { state.selected = null; refresh(); markSelected(); } return; }
+  if (!box) { closeEditor(); if (state.selected) selectField(null); return; }
   const id = box.dataset.box;
   const f = state.fields.find(x => x.id === id);
   const p = svgPoint(svg, ev);
   drag = { id, mode: handle ? 'resize' : 'move', start: p, orig: { x: f.x, y: f.y, w: f.w, h: f.h }, moved: false };
-  state.selected = id;
+  if (state.selected !== id) { state.selected = id; renderRibbon(); }
   ev.preventDefault();
   $('#sheet').setPointerCapture(ev.pointerId);
 });
@@ -681,34 +729,45 @@ $('#sheet').addEventListener('pointerup', () => {
   const id = drag.id;
   drag = null;
   guides = { x: [], y: [] };
-  state.openField = id;
-  renderFields();
+  renderRibbon();
   refresh();
-  const card = $(`.field[data-field="${id}"]`);
-  if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 });
 
 // ---------- 이 상장만 직접 고치기 ----------
-let editing = null; // { field, index }
+let editing = null; // { mode: 'override' | 'template', field, index }
 function currentText(index, fieldId) {
   const ov = state.overrides[index] && state.overrides[index][fieldId];
   if (typeof ov === 'string') return ov;
   const f = state.fields.find(x => x.id === fieldId);
   return fillTemplate(f.text, state.columns, state.rows[index] || [], index).text;
 }
-function openEditor(fieldId) {
-  if (!state.rows.length) return;
+function openEditor(fieldId, mode = 'override') {
+  if (mode === 'override' && !state.rows.length) return;
   syncOverrides();
   const f = state.fields.find(x => x.id === fieldId);
-  editing = { field: fieldId, index: state.current };
-  $('#edTitle').textContent = `${state.current + 1}번 ${recName(state.current)} · ${f.label}`;
+  editing = { mode, field: fieldId, index: state.current };
   const ta = $('#edText');
-  ta.value = currentText(state.current, fieldId);
+  if (mode === 'template') {
+    $('#edTitle').textContent = `${f.label} 칸 문구`;
+    $('#edHint').textContent = '모든 상장에 적용 · 변수를 눌러 넣어요';
+    ta.value = f.text;
+    $('#edReset').textContent = '기본 문구로';
+    const def = FIELD_DEFS.find(d => d.id === fieldId);
+    $('#edReset').disabled = !def || def.text === f.text;
+    $('#edChips').hidden = false;
+    $('#edChips').innerHTML = [...state.columns, ...BUILTIN_VARS].map(k => `<button class="chip" data-insert="{{${esc(k)}}}">{{${esc(k)}}}</button>`).join('');
+  } else {
+    $('#edTitle').textContent = `${state.current + 1}번 ${recName(state.current)} · ${f.label}`;
+    $('#edHint').textContent = '이 상장에만 적용돼요';
+    ta.value = currentText(state.current, fieldId);
+    $('#edReset').textContent = '원래 문구로';
+    $('#edReset').disabled = typeof state.overrides[state.current][fieldId] !== 'string';
+    $('#edChips').hidden = true;
+  }
   ta.rows = fieldId === 'body' ? 5 : 2;
-  $('#edReset').disabled = typeof state.overrides[state.current][fieldId] !== 'string';
   $('#editor').hidden = false;
   refresh();
-  requestAnimationFrame(() => { positionEditor(); ta.focus(); ta.select(); });
+  requestAnimationFrame(() => { positionEditor(); ta.focus(); if (mode === 'override') ta.select(); });
 }
 function closeEditor() {
   if (!editing) return;
@@ -719,7 +778,7 @@ function closeEditor() {
 }
 function positionEditor() {
   if (!editing) return;
-  if (editing.index !== state.current) { closeEditor(); return; }
+  if (editing.mode === 'override' && editing.index !== state.current) { closeEditor(); return; }
   const area = $(`[data-box="${editing.field}"] .area`);
   const canvas = $('#canvas');
   const ed = $('#editor');
@@ -927,21 +986,16 @@ function bind() {
     renderPapers(); refresh();
   });
 
-  // 상자 정렬 막대
-  $('#alignBar').addEventListener('click', e => {
-    const pl = e.target.closest('[data-place]');
-    if (pl) { placeSelected(pl.dataset.place); return; }
-    const ta = e.target.closest('[data-talign]');
-    if (ta) {
-      const f = state.fields.find(x => x.id === state.selected);
-      if (f) { f.align = ta.dataset.talign; syncFieldInputs(f); refresh(); }
-    }
-  });
   $('#snapOn').addEventListener('change', e => { state.snap = e.target.checked; save(); });
 
   // 직접 고치기
   $('#edText').addEventListener('input', e => {
     if (!editing) return;
+    if (editing.mode === 'template') {
+      state.fields.find(x => x.id === editing.field).text = e.target.value;
+      $('#edReset').disabled = false;
+      refresh(); return;
+    }
     syncOverrides();
     state.overrides[editing.index][editing.field] = e.target.value;
     $('#edReset').disabled = false;
@@ -949,12 +1003,31 @@ function bind() {
   });
   $('#edReset').addEventListener('click', () => {
     if (!editing) return;
+    if (editing.mode === 'template') {
+      const def = FIELD_DEFS.find(d => d.id === editing.field);
+      if (def) { state.fields.find(x => x.id === editing.field).text = def.text; $('#edText').value = def.text; }
+      $('#edReset').disabled = true; refresh(); return;
+    }
     delete state.overrides[editing.index][editing.field];
     $('#edText').value = currentText(editing.index, editing.field);
     $('#edReset').disabled = true;
     refresh();
   });
   $('#edDone').addEventListener('click', closeEditor);
+  $('#edChips').addEventListener('click', e => {
+    const ins = e.target.closest('[data-insert]');
+    if (!ins || !editing) return;
+    const ta = $('#edText');
+    const a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a;
+    ta.value = ta.value.slice(0, a) + ins.dataset.insert + ta.value.slice(b);
+    ta.focus(); ta.selectionStart = ta.selectionEnd = a + ins.dataset.insert.length;
+    ta.dispatchEvent(new Event('input'));
+  });
+  $('#sheet').addEventListener('dblclick', e => {
+    if (state.step !== 3) return;
+    const id = lastDownBox || (e.target.closest('[data-box]') || {}).dataset?.box;
+    if (id) { selectField(id); openEditor(id, 'template'); }
+  });
   $('#edText').addEventListener('keydown', e => { if (e.key === 'Escape') closeEditor(); });
   $('#recList').addEventListener('click', e => {
     const b = e.target.closest('[data-rec]');
@@ -1051,42 +1124,38 @@ function bind() {
     state.rows[state.current][c.dataset.c] = c.value; refresh();
   });
 
-  // 3단계
-  $('#allFont').addEventListener('change', e => {
-    if (!e.target.value) return;
-    state.fields.forEach(f => { f.font = e.target.value; });
-    renderFields(); refresh();
+  // 3단계: 상단 리본
+  const upd = (prop, v) => { const f = selField(); if (f) updateField(f.id, prop, v); };
+  $('#rbField').addEventListener('change', e => selectField(e.target.value));
+  $('#rbFont').addEventListener('change', e => {
+    const f = selField();
+    if (f) upd('font', e.target.value);
+    else if (e.target.value) { state.fields.forEach(x => { x.font = e.target.value; }); renderRibbon(); refresh(); }
   });
-  $('#fieldList').addEventListener('click', e => {
-    const t = e.target.closest('[data-toggle]');
-    if (t) {
-      state.openField = state.openField === t.dataset.toggle ? null : t.dataset.toggle;
-      state.selected = state.openField;
-      renderFields(); refresh(); return;
-    }
-    const ins = e.target.closest('[data-insert]');
-    if (ins) {
-      const card = ins.closest('.field');
-      const ta = $('textarea[data-prop="text"]', card);
-      const s = ta.selectionStart ?? ta.value.length, en = ta.selectionEnd ?? s;
-      ta.value = ta.value.slice(0, s) + ins.dataset.insert + ta.value.slice(en);
-      ta.focus(); ta.selectionStart = ta.selectionEnd = s + ins.dataset.insert.length;
-      updateField(card.dataset.field, 'text', ta.value); return;
-    }
-    const segBtn = e.target.closest('.seg [data-prop]');
-    if (segBtn) {
-      const card = segBtn.closest('.field');
-      $$(`[data-prop="${segBtn.dataset.prop}"]`, card).forEach(b => b.classList.toggle('on', b === segBtn));
-      updateField(card.dataset.field, segBtn.dataset.prop, segBtn.dataset.val);
-    }
+  $('#rbSize').addEventListener('input', e => upd('size', e.target.value));
+  $$('[data-size]').forEach(b => b.addEventListener('click', () => {
+    const f = selField(); if (!f) return;
+    upd('size', Math.max(4, f.size + Number(b.dataset.size)));
+  }));
+  $('#rbBold').addEventListener('click', () => { const f = selField(); if (f) upd('bold', !f.bold); });
+  $('#rbColor').addEventListener('input', e => upd('color', e.target.value));
+  $('#rbAlign').addEventListener('click', e => { const b = e.target.closest('[data-align]'); if (b) upd('align', b.dataset.align); });
+  $('#rbValign').addEventListener('click', e => { const b = e.target.closest('[data-valign]'); if (b) upd('valign', b.dataset.valign); });
+  $('#rbLH').addEventListener('input', e => upd('lineHeight', e.target.value));
+  $('#rbMax').addEventListener('input', e => upd('maxLines', e.target.value));
+  $('#rbMinSize').addEventListener('input', e => upd('minSize', e.target.value));
+  $('#rbMinScale').addEventListener('input', e => upd('minScale', e.target.value));
+  $('#rbMinSpacing').addEventListener('input', e => upd('minSpacing', e.target.value));
+  for (const k of ['x', 'y', 'w', 'h']) $(`#rb${k.toUpperCase()}`).addEventListener('input', e => upd(k, e.target.value));
+  $('#rbText').addEventListener('click', () => { const f = selField(); if (f) openEditor(f.id, 'template'); });
+  $('#ribbon').addEventListener('click', e => {
+    const pb = e.target.closest('[data-pop]');
+    if (pb) { togglePop(pb.dataset.pop); return; }
+    const pl = e.target.closest('[data-place]');
+    if (pl) placeSelected(pl.dataset.place);
   });
-  $('#fieldList').addEventListener('input', e => {
-    const el = e.target.closest('[data-prop]');
-    if (!el || el.tagName === 'BUTTON') return;
-    const card = el.closest('.field');
-    const v = el.type === 'checkbox' ? el.checked : el.value;
-    updateField(card.dataset.field, el.dataset.prop, v);
-    if (el.dataset.prop === 'font' || el.dataset.prop === 'bold') renderFieldsFontNote();
+  document.addEventListener('pointerdown', e => {
+    if (openPop && !e.target.closest('.pop') && !e.target.closest('[data-pop]')) closePops();
   });
 
   // 도장
@@ -1121,7 +1190,17 @@ function bind() {
   $('#nextRec').addEventListener('click', () => go(1));
   $('#showBg').addEventListener('change', e => { state.showBg = e.target.checked; refresh(); });
   $('#showBoxes').addEventListener('change', e => { state.showBoxes = e.target.checked; refresh(); });
-  $('#zoomSel').addEventListener('change', e => { state.zoom = e.target.value; applyZoom(); save(); });
+  $('#zoomIn').addEventListener('click', () => zoomBy(1.2));
+  $('#zoomOut').addEventListener('click', () => zoomBy(1 / 1.2));
+  $('#zoomFit').addEventListener('click', () => { state.zoom = 'fit'; applyZoom(); save(); });
+  $('#zoomVal').addEventListener('click', () => { state.zoom = 1; applyZoom(); save(); });
+  // Ctrl(⌘)+휠, 트랙패드 핀치: 마우스 자리를 기준으로 확대·축소
+  $('#canvas').addEventListener('wheel', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const k = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0022));
+    zoomBy(k, e.clientX, e.clientY);
+  }, { passive: false });
   window.addEventListener('resize', applyZoom);
   document.addEventListener('keydown', e => {
     if (e.target.closest('input, textarea, select')) return;
@@ -1134,15 +1213,13 @@ function bind() {
       f.x = Math.round(f.x * 100) / 100; f.y = Math.round(f.y * 100) / 100;
       e.preventDefault(); syncFieldInputs(f); refresh(); return;
     }
-    if (e.key === 'Escape' && state.selected) { state.selected = null; markSelected(); refresh(); return; }
+    if (e.key === 'Escape') { if (openPop) { closePops(); return; } if (state.selected) { selectField(null); return; } }
+    if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); zoomBy(1.2); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); zoomBy(1 / 1.2); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === '0') { e.preventDefault(); state.zoom = 'fit'; applyZoom(); return; }
     if (e.key === 'ArrowRight' || e.key === 'PageDown') go(1);
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') go(-1);
   });
-}
-
-function renderFieldsFontNote() {
-  const fi = fontInfo(state.fields[0].font);
-  $('#fontNote').textContent = `${fi.name}: ${fi.license}`;
 }
 
 function go(d) {
@@ -1172,7 +1249,6 @@ bind();
 new ResizeObserver(() => { applyZoom(); positionEditor(); }).observe($('#canvas'));
 $('#showBg').checked = state.showBg;
 $('#showBoxes').checked = state.showBoxes;
-$('#zoomSel').value = state.zoom;
 $('#bgInPdf').checked = state.bgInPdf;
 $$('#rangeSeg button').forEach(x => x.classList.toggle('on', x.dataset.range === state.range));
 setStep(state.step || 1);
