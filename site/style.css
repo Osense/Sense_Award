@@ -6,6 +6,7 @@
 @font-face { font-family: 'JetBrains Mono'; src: url('fonts/ui/JetBrainsMono-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
 
 @font-face { font-family: 'Chosun Gungseo'; src: url('fonts/print/ChosunGs.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'Pinyon Script'; src: url('fonts/print/PinyonScript-Regular.ttf') format('truetype'); font-display: swap; }
 /* ---------- 1. 디자인 토큰 ---------- */
 :root {
   color-scheme: light;
@@ -582,3 +583,38 @@ body[data-step="0"] .step-tabs, body[data-step="0"] .hist, body[data-step="0"] #
   .print-page svg { display: block; width: 210mm; height: 297mm; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* 마크 프레임 */
+.mark-ph path:first-child { fill: oklch(0.6 0.12 85 / 0.08); stroke: oklch(0.55 0.12 85 / 0.9); stroke-width: 0.35; stroke-dasharray: 1.2 0.9; }
+.mark-ph .plus { fill: none; stroke: oklch(0.5 0.12 85); stroke-width: 0.5; stroke-linecap: round; }
+.mark-ph text { fill: oklch(0.45 0.1 85); font-family: sans-serif; }
+.mark-box .area { stroke: oklch(0.55 0.12 85 / 0.0); fill: transparent; stroke-dasharray: none; }
+.mark-box:hover .area { stroke: oklch(0.55 0.12 85 / 0.6); }
+.mark-box.sel .area { stroke: oklch(0.55 0.12 85 / 0.5); fill: transparent; stroke-width: 0.25; stroke-dasharray: 0.8 0.8; }
+.mark-box .mark-outline { fill: none; stroke: oklch(0.55 0.15 85); stroke-width: 0.45; pointer-events: none; }
+.mark-box .tag { fill: oklch(0.45 0.12 85); }
+.mark-box .handle { stroke: oklch(0.55 0.15 85); }
+.mark-box.crop .area { cursor: grab; stroke: oklch(0.55 0.15 85); stroke-dasharray: none; }
+.pop-mark { width: 340px; }
+.mark-add { display: flex; align-items: center; gap: 6px; margin: 8px 0 10px; font-size: 12.5px; }
+.mark-add span { color: var(--muted); margin-right: 2px; }
+.mark-add button { flex: 1; }
+.mark-head { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.mark-name { flex: 1; font-weight: 700; }
+.mark-shape { display: flex; gap: 4px; margin-bottom: 8px; }
+.mark-shape button { flex: 1; }
+.mark-shape button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.mark-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.mark-btns button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.mark-zoom { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+/* 처음 화면: 양식별 새로 만들기 */
+.proj-new.tpl-card { justify-content: flex-start; padding: 12px; gap: 6px; min-height: 0; text-align: center; }
+.proj-new.tpl-card .proj-thumb { pointer-events: none; }
+.proj-new.tpl-card .proj-thumb .plus { position: absolute; left: 50%; top: 58%; transform: translate(-50%, -50%); font-size: 44px; color: var(--accent); opacity: .55; font-weight: 300; }
+.proj-new.tpl-card:hover .proj-thumb .plus { opacity: 1; }
+.proj-new.tpl-card .hint { font-size: 11.5px; line-height: 1.4; }
+.proj-thumb.tpl-us { font-family: 'Pinyon Script', cursive; }
+.proj-thumb.tpl-us .t { top: 25%; font-size: 17px; letter-spacing: 0; }
+.proj-thumb.tpl-us .n { left: 0; right: 0; top: 38%; text-align: center; font-size: 15px; letter-spacing: 0; }
+.proj-new.tpl-card .proj-thumb .plus { font-family: system-ui, sans-serif; }

@@ -7,6 +7,8 @@ import { computeRecord, fontKeysFor, textLayerSvg } from './render.js';
 import { buildPdf, buildTestPage } from './export-pdf.js';
 import { subsetFont } from './subset.js';
 import { Sheet } from './sheet.js';
+import { TEMPLATES, tpl, fieldsFor } from './templates.js';
+import { MARK_SHAPES, newMark, markSvg, markPath, clampMark, bakeMark } from './marks.js';
 
 const hbWasm = () => fetch('vendor/harfbuzz-subset.wasm').then(r => { if (!r.ok) throw new Error('subset wasm'); return r.arrayBuffer(); });
 const subsetFn = (bytes, cps) => subsetFont(hbWasm, bytes, cps);
@@ -19,22 +21,25 @@ const clone = o => JSON.parse(JSON.stringify(o));
 const STORE_KEY = 'sense-award:state:v3'; // 프로젝트 기능 전의 저장 자리(한 번 옮겨 담는다)
 const INDEX_KEY = 'sense-award:projects';
 const PKEY = id => `sense-award:project:${id}`;
-const LAYOUT_VERSION = 6;
+const LAYOUT_VERSION = 7;
 
 // ---------- 상태 ----------
-function freshState() {
+function freshState(templateId = 'kr') {
+  const T = tpl(templateId);
   return {
     step: 1,
-    border: { ...BORDER_DEFAULT },
-    fields: defaultFields(),
-    columns: [...SAMPLE.columns],
-    rows: clone(SAMPLE.rows),
+    template: T.id,
+    border: { ...T.border },
+    fields: fieldsFor(T.id),
+    columns: [...T.sample.columns],
+    rows: clone(T.sample.rows),
+    marks: T.marks(T.border),
     current: 0,
     overrides: [],
     offset: { x: 0, y: 0 },
     measured: 100,
     stamp: { enabled: false, src: null, png: null, imgW: 0, imgH: 0, white: true, red: false, size: 20, dx: -5, dy: 0, manual: false },
-    showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: false, colWidths: {},
+    showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: T.bgInPdf, colWidths: {},
     dataMode: 'paste', selected: null, sel: [], snap: true,
     layoutVersion: LAYOUT_VERSION,
   };
@@ -49,14 +54,16 @@ function hydrate(raw) {
     if (!raw) return null;
     const s = JSON.parse(raw);
     // 남은 작업 내용은 살리되, 화면은 늘 첫 단계(용지)에서 시작한다
-    const st = { ...freshState(), ...s, step: 1, current: 0, selected: null, sel: [], zoom: 'fit', dataMode: 'paste' };
+    const st = { ...freshState(s.template || 'kr'), ...s, step: 1, current: 0, selected: null, sel: [], zoom: 'fit', dataMode: 'paste' };
+    st.template = TEMPLATES[st.template] ? st.template : 'kr';
+    st.marks = Array.isArray(st.marks) ? st.marks : [];
     st.border = normBorder(st.border);
     // 배치 규칙이 바뀌었으면(참고 상장 비율 적용) 칸 기본 서식을 맞추고 자동 배치로 되돌린다
     if ((st.layoutVersion || 1) < LAYOUT_VERSION) {
-      const defs = Object.fromEntries(FIELD_DEFS.map(d => [d.id, d]));
+      const defs = Object.fromEntries(tpl(st.template).defs.map(d => [d.id, d]));
       st.fields = st.fields.map(f => {
         const d = defs[f.id] || {};
-        return { ...f, manual: false, align: d.align ?? f.align, valign: d.valign ?? 'middle', spacing: d.spacing ?? 0, lineHeight: d.lineHeight ?? f.lineHeight, maxLines: d.maxLines ?? f.maxLines };
+        return { ...f, manual: false, align: d.align ?? f.align, valign: d.valign ?? 'middle', spacing: d.spacing ?? 0, lineHeight: d.lineHeight ?? f.lineHeight, maxLines: d.maxLines ?? f.maxLines, rule: d.rule, ruleColor: d.ruleColor };
       });
       st.stamp = { ...st.stamp, manual: false };
       st.layoutVersion = LAYOUT_VERSION;
@@ -75,7 +82,7 @@ let savedKey = '';
 function projectMeta(st) {
   const row = st.rows[0] || [];
   const txt = id => { const f = st.fields.find(x => x.id === id); return f ? fillTemplate(f.text, st.columns, row, 0).text.replace(/\s+/g, ' ').trim() : ''; };
-  return { count: st.rows.length, title: txt('title'), nameText: txt('name'), border: st.border };
+  return { count: st.rows.length, title: txt('title'), nameText: txt('name'), border: st.border, template: st.template || 'kr' };
 }
 
 function persist() {
@@ -86,7 +93,10 @@ function persist() {
   try { localStorage.setItem(PKEY(projectId), JSON.stringify(state)); }
   catch {
     // 이미지가 커서 못 담으면 이미지만 빼고 저장
-    try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false } })); } catch {}
+    try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false } })); } catch {
+      try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false }, marks: state.marks.map(m => ({ ...m, src: null })) })); } catch {}
+    }
+    setStatus('저장 공간이 모자라 그림 일부를 빼고 저장했어요. 쓰지 않는 프로젝트를 지워 주세요.', 'warn');
   }
   savedKey = key;
   const list = readIndex();
@@ -137,12 +147,12 @@ function openProject(id) {
   setStep(1);
 }
 
-function newProject() {
+function newProject(templateId = 'kr') {
   persist();
   const id = newId();
-  const st = freshState();
+  const st = freshState(templateId);
   const list = readIndex();
-  list.push({ id, name: uniqueName('새 프로젝트'), created: Date.now(), updated: Date.now(), ...projectMeta(st) });
+  list.push({ id, name: uniqueName(templateId === 'us' ? '새 증서' : '새 프로젝트'), created: Date.now(), updated: Date.now(), ...projectMeta(st) });
   writeIndex(list);
   try { localStorage.setItem(PKEY(id), JSON.stringify(st)); } catch {}
   openProject(id);
@@ -202,12 +212,13 @@ function renderHome() {
   const list = readIndex().sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const cards = list.map(p => {
     const thumb = svgDataUrl(borderSvg(normBorder(p.border || BORDER_DEFAULT)));
+    const T = tpl(p.template);
     return `<article class="proj-card" data-id="${esc(p.id)}">
-      <button class="proj-thumb" data-act="open" title="열기" style="background-image:url(&quot;${thumb}&quot;)">
+      <button class="proj-thumb tpl-${T.id}" data-act="open" title="열기" style="background-image:url(&quot;${thumb}&quot;)">
         <span class="t">${esc(p.title || '')}</span><span class="n">${esc(p.nameText || '')}</span>
       </button>
       <input class="proj-name" value="${esc(p.name)}" aria-label="프로젝트 이름" title="눌러서 이름 바꾸기">
-      <div class="proj-meta">명단 ${p.count ?? 0}명 · ${fmtTime(p.updated || p.created || Date.now())}</div>
+      <div class="proj-meta">${esc(T.name)} · 명단 ${p.count ?? 0}명 · ${fmtTime(p.updated || p.created || Date.now())}</div>
       <div class="proj-acts">
         <button class="small primary" data-act="open">열기</button>
         <button class="small" data-act="dup">복제</button>
@@ -215,13 +226,24 @@ function renderHome() {
       </div>
     </article>`;
   }).join('');
-  $('#projGrid').innerHTML = `<button class="proj-new" id="homeNew"><span class="plus">+</span><b>새 프로젝트</b><span class="hint">견본 명단과 기본 용지로 시작해요</span></button>` + cards;
+  // 새로 만들기: 양식마다 카드 하나(견본 명단·용지·마크 프레임까지 들어간 상태로 시작)
+  const news = Object.values(TEMPLATES).map(T => {
+    const thumb = svgDataUrl(borderSvg(normBorder(T.border)));
+    const row = T.sample.rows[0] || [];
+    const val = col => row[T.sample.columns.indexOf(col)] || '';
+    const title = T.id === 'us' ? val('증서명') : val('상장명');
+    return `<button class="proj-new tpl-card" data-new="${T.id}"${T.id === 'kr' ? ' id="homeNew"' : ''}>
+      <span class="proj-thumb tpl-${T.id}" style="background-image:url(&quot;${thumb}&quot;)"><span class="t">${esc(title)}</span><span class="n">${esc(val('이름'))}</span><span class="plus">+</span></span>
+      <b>새 ${esc(T.name)}</b><span class="hint">${esc(T.desc)}</span></button>`;
+  }).join('');
+  $('#projGrid').innerHTML = news + cards;
   $('#projEmpty').hidden = list.length > 0;
 }
 
 const paperSize = () => PAPER;
+const tplBorder = () => tpl(state.template).border;
 const docView = () => {
-  const d = { fields: state.fields, columns: state.columns, rows: state.rows, stamp: state.stamp, overrides: state.overrides };
+  const d = { template: state.template, fields: state.fields, columns: state.columns, rows: state.rows, stamp: state.stamp, overrides: state.overrides };
   // 장마다 그 장의 글 길이로 자동 배치(짧은 본문은 커지고 긴 본문은 작아짐)
   d.layoutFor = i => layoutForRecord(d, store, state.border, i);
   return d;
@@ -244,7 +266,7 @@ function recName(i) {
 
 // ---------- 되돌리기·다시 하기 ----------
 // 문서 내용(칸·명단·고친 글·테두리·도장 설정)만 기록한다. 화면 상태(단계·확대)는 기록하지 않는다.
-const HIST_KEYS = ['fields', 'columns', 'rows', 'overrides', 'border', 'stamp', 'offset', 'measured'];
+const HIST_KEYS = ['fields', 'columns', 'rows', 'overrides', 'border', 'stamp', 'offset', 'measured', 'marks'];
 const HIST_MAX = 120;
 let undoStack = [];
 let redoStack = [];
@@ -257,7 +279,9 @@ function snapshot() {
   const o = {};
   for (const k of HIST_KEYS) {
     // 도장 그림(용량이 큼)은 기록에서 빼고 참조만 남긴다
-    o[k] = k === 'stamp' ? { ...state.stamp, src: undefined, png: undefined, _img: stampImages(state.stamp) } : clone(state[k]);
+    o[k] = k === 'stamp' ? { ...state.stamp, src: undefined, png: undefined, _img: stampImages(state.stamp) }
+      : k === 'marks' ? state.marks.map(m => ({ ...m, src: undefined, _img: imgRef(m.src) }))
+      : clone(state[k]);
   }
   return o;
 }
@@ -266,6 +290,13 @@ function stampImages(st) {
   if (!st.src) return null;
   const key = `${st.src.length}:${st.src.slice(-48)}:${st.png ? st.png.length : 0}`;
   stampImgs.set(key, { src: st.src, png: st.png });
+  return key;
+}
+// 마크 그림도 기록에서는 참조만
+function imgRef(src) {
+  if (!src) return null;
+  const key = `m:${src.length}:${src.slice(-48)}`;
+  stampImgs.set(key, { src });
   return key;
 }
 function snapStr(o) { return JSON.stringify(o); }
@@ -301,6 +332,9 @@ function restore(snap) {
     if (k === 'stamp') {
       const img = snap.stamp._img ? stampImgs.get(snap.stamp._img) : null;
       state.stamp = { ...clone({ ...snap.stamp, _img: undefined }), src: img ? img.src : null, png: img ? img.png : null };
+    } else if (k === 'marks') {
+      state.marks = (snap.marks || []).map(m => { const im = m._img ? stampImgs.get(m._img) : null; return { ...clone({ ...m, _img: undefined }), src: im ? im.src : null }; });
+      if (markSel && !state.marks.some(m => m.id === markSel)) { markSel = null; cropId = null; }
     } else state[k] = clone(snap[k]);
   }
   histCur = snap; histCurStr = snapStr(snap);
@@ -398,7 +432,10 @@ function renderBorderPage(syncInputs) {
   $('#ornOnLabel').textContent = B.ornOn ? '켜짐' : '꺼짐';
   $('#ornBody').hidden = !B.ornOn;
   $('#ornTypes').innerHTML = ORNAMENT_TYPES.map(t => `<button data-orn="${t.id}" class="${B.ornType === t.id ? 'on' : ''}">${t.name}</button>`).join('');
-  const isChanged = k => B[k] !== BORDER_DEFAULT[k];
+  $('#paperLead').textContent = state.template === 'us'
+    ? '미국식 증서 양식이에요(A4 세로). 가는 금색 이중 테두리는 빈 종이에 함께 인쇄하도록 켜 두었어요(4단계 "테두리도 함께 인쇄"에서 끌 수 있어요). 아래 수치로 테두리를 조정하세요.'
+    : '이 용지는 시판되는 보통 상장 용지 규격(A4, 210×297mm)을 따릅니다. 금색 테두리는 화면에서만 보이는 안내선이라 인쇄에는 들어가지 않아요.';
+  const isChanged = k => B[k] !== tplBorder()[k];
   const changed = ALL_BORDER_KEYS.filter(isChanged).length;
   $('#borderNote').textContent = changed ? `견본에서 ${changed}가지를 바꿨어요` : '견본 디자인 그대로예요';
   $('#borderReset').disabled = !changed;
@@ -648,6 +685,7 @@ function togglePop(name) {
   const btn = $(`#ribbon [data-pop="${name}"]`);
   if (!pop || !btn || btn.disabled) return;
   if (name === 'stamp') renderStampCard();
+  if (name === 'mark') renderMarkPop();
   pop.hidden = false;
   btn.classList.add('on');
   const rb = $('#ribbon').getBoundingClientRect();
@@ -782,6 +820,9 @@ async function renderPreview() {
     const s = rec.stamp;
     stamp = `<image href="${state.stamp.png}" x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" preserveAspectRatio="none"/>`;
   }
+  // 마크 프레임: 그림이 있으면 틀 모양으로 잘라 보여 주고, 빈 틀은 편집할 때만 점선으로
+  const showPh = state.step === 3 || (state.showBoxes && state.step !== 4);
+  const marks = `<g class="mark-layer">${state.marks.map(m => markSvg(m, { placeholder: showPh, crop: state.step === 3 && cropId === m.id })).join('')}</g>`;
   let boxes = '';
   if (state.step === 4) {
     // 확인 단계: 상자는 숨기고, 글자를 누르면 그 상장만 고친다
@@ -804,6 +845,19 @@ async function renderPreview() {
       const s = rec.stamp;
       boxes += `<circle class="stamp-ph" cx="${s.x + s.w / 2}" cy="${s.y + s.h / 2}" r="${s.w / 2}"/>`;
     }
+    // 마크 프레임: 끌어 옮기기, 모서리로 크기, 두 번 누르면 틀 안 그림 자르기(이동·휠 확대)
+    if (state.step === 3) {
+      for (const m of state.marks) {
+        const sel = markSel === m.id, crop = cropId === m.id;
+        const shape = (MARK_SHAPES.find(x => x.id === m.shape) || MARK_SHAPES[0]).name;
+        boxes += `<g class="box mark-box drag ${sel ? 'sel' : ''} ${crop ? 'crop' : ''}" data-box="__mark:${m.id}">
+          <rect class="area" x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}"/>
+          ${sel ? `<path class="mark-outline" d="${markPath(m)}"/>` : ''}
+          <text class="tag" x="${m.x + 0.6}" y="${m.y - 0.9}">${esc(m.name || '마크')} · ${shape}${crop ? ' · 자르기: 끌어 옮기고 휠로 확대' : m.src ? '' : ' · 눌러서 그림 넣기'}</text>
+          ${crop ? '' : `<rect class="handle" data-handle="__mark:${m.id}" x="${m.x + m.w - 2.2}" y="${m.y + m.h - 2.2}" width="4.4" height="4.4" rx="0.8"/>`}
+        </g>`;
+      }
+    }
     // 도장: 3단계에서 끌어 옮기고 모서리로 크기 조절(수여자 끝 글자 기준 상대 위치로 기억)
     if (state.step === 3 && rec.stamp && state.stamp.png) {
       const s = rec.stamp;
@@ -815,7 +869,7 @@ async function renderPreview() {
     }
   }
   $('#sheet').innerHTML = `<svg id="page" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="aspect-ratio:${w}/${h}">
-    <rect width="${w}" height="${h}" fill="#fff"/>${bg}${stamp}<g class="text-layer">${textLayerSvg(rec)}</g><g class="box-layer">${boxes}</g><g class="guide-layer">${guideSvg()}${marqueeSvg()}</g></svg>`;
+    <rect width="${w}" height="${h}" fill="#fff"/>${bg}${marks}${stamp}<g class="text-layer">${textLayerSvg(rec)}</g><g class="box-layer">${boxes}</g><g class="guide-layer">${guideSvg()}${marqueeSvg()}</g></svg>`;
   ribbonInfo();
   applyZoom();
   positionEditor();
@@ -1044,6 +1098,72 @@ function syncFieldInputs() { renderRibbon(); }
 let drag = null;
 let lastDownBox = null;
 let stampSelected = false;
+let markSel = null;   // 고른 마크 프레임 id
+let cropId = null;    // 틀 안 그림을 고르는(자르기) 중인 마크 id
+let markUploadId = null;
+const markById = id => state.marks.find(m => m.id === id);
+function selectMark(id) {
+  markSel = id;
+  if (cropId && cropId !== id) cropId = null;
+  if (id) {
+    stampSelected = false;
+    if (selIds().length) { state.sel = []; state.selected = null; }
+    renderRibbon();
+    if (openPop !== 'mark') togglePop('mark');
+  }
+  renderMarkPop();
+}
+function renderMarkPop() {
+  if (!$('#pop-mark')) return;
+  const m = markSel ? markById(markSel) : null;
+  $('#markBody').hidden = !m;
+  $('#markEmpty').hidden = !!m;
+  if (!m) return;
+  if ($('#markName') !== document.activeElement) $('#markName').value = m.name || '';
+  $('#markShape').innerHTML = MARK_SHAPES.map(x => `<button data-shape="${x.id}" class="${m.shape === x.id ? 'on' : ''}">${x.name}</button>`).join('');
+  $('#markPick').textContent = m.src ? '그림 바꾸기' : '그림 넣기';
+  for (const id of ['markCrop', 'markFit', 'markClearImg', 'markZoom']) $(`#${id}`).disabled = !m.src;
+  $('#markCrop').classList.toggle('on', cropId === m.id);
+  $('#markCrop').textContent = cropId === m.id ? '자르기 끝내기' : '틀 안에서 자르기';
+  $('#markZoom').value = Math.round((m.zoom || 1) * 100);
+  $('#markZoomV').textContent = `${Math.round((m.zoom || 1) * 100)}%`;
+  for (const k of ['x', 'y', 'w', 'h']) { const el = $(`#mark${k.toUpperCase()}`); if (el !== document.activeElement) el.value = Math.round(m[k] * 10) / 10; }
+  $('#markH').disabled = m.shape === 'circle';
+}
+function addMark(shape) {
+  const C = contentRect(state.border);
+  const size = shape === 'circle' ? 30 : 36;
+  const m = clampMark(newMark({ shape, name: `마크 ${state.marks.length + 1}`, x: C.x + C.w / 2 - size / 2, y: C.y + C.h / 2 - (shape === 'circle' ? 30 : 24) / 2, w: size, h: shape === 'circle' ? size : 24 }));
+  state.marks.push(m);
+  selectMark(m.id);
+  commitNow(); refresh();
+}
+function removeMark(id) {
+  state.marks = state.marks.filter(m => m.id !== id);
+  if (markSel === id) markSel = null;
+  if (cropId === id) cropId = null;
+  renderMarkPop(); commitNow(); refresh();
+}
+async function setMarkImage(id, file) {
+  const m = markById(id);
+  if (!m || !file) return;
+  const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+  const im = await loadImage(url);
+  // 투명 배경(PNG 로고·인장)은 PNG로, 사진은 JPEG로 줄여 저장(긴 변 1600px)
+  m.src = await downscale(im, 1600);
+  const im2 = await loadImage(m.src);
+  m.imgW = im2.naturalWidth; m.imgH = im2.naturalHeight;
+  m.zoom = 1; m.panX = 0; m.panY = 0;
+  clampMark(m);
+  selectMark(id);
+  commitNow(); refresh();
+}
+function pickMarkImage(id) {
+  markUploadId = id;
+  const inp = $('#markFile');
+  inp.value = '';
+  inp.click();
+}
 
 function marqueeSvg() {
   if (!drag || drag.mode !== 'marquee' || !drag.moved) return '';
@@ -1069,10 +1189,22 @@ $('#sheet').addEventListener('pointerdown', ev => {
     // 빈 곳을 끌면 상자 여러 개를 한 번에 고른다(Shift·Ctrl을 누르면 더하기)
     closeEditor();
     stampSelected = false;
+    if (markSel || cropId) { markSel = null; cropId = null; renderMarkPop(); }
     drag = { mode: 'marquee', start: p, rect: { x: p.x, y: p.y, w: 0, h: 0 }, base: additive ? [...selIds()] : [], additive, moved: false };
     return;
   }
   const id = box.dataset.box;
+  if (id.startsWith('__mark:')) {
+    const mid = id.slice(7), m = markById(mid);
+    if (!m) return;
+    selectMark(mid);
+    if (ev.target.closest('[data-handle]')) drag = { mode: 'markSize', mid, start: p, orig: { ...m }, moved: false };
+    else if (cropId === mid && m.src) drag = { mode: 'markPan', mid, start: p, orig: { panX: m.panX || 0, panY: m.panY || 0 }, moved: false };
+    else drag = { mode: 'markMove', mid, start: p, orig: { x: m.x, y: m.y }, moved: false };
+    refresh();
+    return;
+  }
+  if (markSel) { markSel = null; cropId = null; renderMarkPop(); }
   if (id === '__stamp') {
     const st = state.stamp;
     stampSelected = true;
@@ -1120,6 +1252,23 @@ $('#sheet').addEventListener('pointermove', ev => {
     refresh();
     return;
   }
+  if (drag.mode.startsWith('mark')) {
+    const m = markById(drag.mid);
+    if (!m) return;
+    const r2 = v => Math.round(v * 10) / 10;
+    if (ev.shiftKey && drag.mode !== 'markSize') { if (Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0; }
+    if (drag.mode === 'markMove') { m.x = r2(drag.orig.x + dx); m.y = r2(drag.orig.y + dy); }
+    else if (drag.mode === 'markPan') { m.panX = drag.orig.panX + dx; m.panY = drag.orig.panY + dy; }
+    else {
+      // 크기: 원형은 늘 정원, 사각은 자유(Shift를 누르면 비율 유지)
+      const o = drag.orig;
+      if (m.shape === 'circle' || ev.shiftKey) { const k = Math.max((o.w + dx) / o.w, (o.h + dy) / o.h); m.w = r2(o.w * k); m.h = r2(o.h * k); }
+      else { m.w = r2(o.w + dx); m.h = r2(o.h + dy); }
+    }
+    clampMark(m);
+    refresh(); renderMarkPop();
+    return;
+  }
   if (drag.mode === 'stamp' || drag.mode === 'stampSize') {
     const st = state.stamp;
     const r2 = v => Math.round(v * 2) / 2;
@@ -1165,6 +1314,12 @@ $('#sheet').addEventListener('pointerup', () => {
   const d = drag;
   drag = null;
   guides = { x: [], y: [] };
+  if (d.mode && d.mode.startsWith('mark')) {
+    // 빈 틀을 눌렀다 떼면(끌지 않고) 바로 그림 고르기
+    if (!d.moved && d.mode === 'markMove') { const m = markById(d.mid); if (m && !m.src) { pickMarkImage(m.id); return; } }
+    commitNow(); refresh();
+    return;
+  }
   if (d.mode === 'marquee') {
     if (!d.moved && !d.additive) { setSelection([], null); return; }
     renderRibbon(); refresh();
@@ -1198,7 +1353,7 @@ function openEditor(fieldId, mode = 'override') {
     $('#edHint').textContent = '모든 상장에 적용 · 변수를 눌러 넣어요';
     ta.value = f.text;
     $('#edReset').textContent = '기본 문구로';
-    const def = FIELD_DEFS.find(d => d.id === fieldId);
+    const def = tpl(state.template).defs.find(d => d.id === fieldId);
     $('#edReset').disabled = !def || def.text === f.text;
     $('#edChips').hidden = false;
     $('#edChips').innerHTML = [...state.columns, ...BUILTIN_VARS].map(k => `<button class="chip" data-insert="{{${esc(k)}}}">{{${esc(k)}}}</button>`).join('');
@@ -1372,6 +1527,7 @@ async function exportPdf() {
       PDFLib: window.PDFLib, fontkit: window.fontkit, doc: docView(), store, indices,
       paper: paperSize(), offset: state.offset, scale: printScale(),
       stampPng: state.stamp.png ? dataUrlBytes(state.stamp.png) : null,
+      marks: await bakedMarks(),
       border: state.bgInPdf ? state.border : null,
       subset: subsetFn,
       onProgress: async (d, t) => { progress(d, t, d === t ? '파일로 묶는 중…' : ''); await new Promise(r => setTimeout(r)); },
@@ -1411,6 +1567,19 @@ async function sendToPrinter(pagesHtml, label) {
   window.print();
 }
 
+// 마크 프레임을 틀 모양 PNG로 굽는다(그림이 든 틀만)
+async function bakedMarks() {
+  const out = [];
+  for (const m of state.marks) {
+    if (!m.src) continue;
+    try {
+      const b = await bakeMark(m);
+      if (b) out.push({ x: m.x, y: m.y, w: m.w, h: m.h, png: dataUrlBytes(b.png), url: b.png, pxW: b.pxW, pxH: b.pxH });
+    } catch (e) { console.error(e); }
+  }
+  return out;
+}
+
 async function printNow() {
   if (busy || !state.rows.length) return;
   busy = true;
@@ -1419,7 +1588,11 @@ async function printNow() {
     applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
     const indices = allIndices();
     const { w, h } = paperSize();
-    const bg = state.bgInPdf ? borderSvg(normBorder(state.border), { bg: false }).replace('<svg ', `<svg width="${w}" height="${h}" `) : '';
+    // 테두리: PDF와 같은 단색 경로(그라데이션은 인쇄에서 빠지는 브라우저가 있음)
+    const bg = state.bgInPdf ? borderShapes(normBorder(state.border)).map(sh => sh.fill
+      ? `<path d="${sh.d}" fill="${sh.fill}"/>`
+      : `<path d="${sh.d}" fill="none" stroke="${sh.stroke}" stroke-width="${sh.width}"${sh.cap ? ' stroke-linecap="round"' : ''}/>`).join('') : '';
+    const mk = (await bakedMarks()).map(m => `<image href="${m.url}" x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}" preserveAspectRatio="none"/>`).join('');
     let html = '';
     for (const i of indices) {
       const rec = computeRecord(docView(), i, store);
@@ -1428,7 +1601,7 @@ async function printNow() {
         const st = rec.stamp;
         stamp = `<image href="${state.stamp.png}" x="${st.x}" y="${st.y}" width="${st.w}" height="${st.h}" preserveAspectRatio="none"/>`;
       }
-      html += printPageSvg(bg + stamp + textLayerSvg(rec));
+      html += printPageSvg(bg + mk + stamp + textLayerSvg(rec));
     }
     await sendToPrinter(html, `${indices.length}장을 인쇄 창으로 보냈어요. 배율은 기본값(100%), 여백은 없음으로 인쇄하세요.`);
   } catch (e) {
@@ -1488,6 +1661,7 @@ async function exportHwpx() {
       JSZip: window.JSZip, template: await loadTemplate(), doc: docView(), store, indices,
       paper: paperSize(), offset: state.offset, scale: printScale(),
       stampPng: state.stamp.png ? dataUrlBytes(state.stamp.png) : null,
+      marks: await bakedMarks(),
       stampPx: { w: state.stamp.imgW, h: state.stamp.imgH },
     });
     download(res.bytes, `상장_${stamp8()}${indices.length === 1 ? `_${indices[0] + 1}` : ''}.hwpx`, 'application/hwp+zip');
@@ -1504,7 +1678,8 @@ function bind() {
   $('#homeBtn').addEventListener('click', goHome);
   $('#projLabel').addEventListener('click', goHome);
   $('#projGrid').addEventListener('click', e => {
-    if (e.target.closest('#homeNew')) { newProject(); return; }
+    const nb = e.target.closest('[data-new]');
+    if (nb) { newProject(nb.dataset.new); return; }
     const card = e.target.closest('.proj-card'), b = e.target.closest('[data-act]');
     if (!card || !b) return;
     const id = card.dataset.id;
@@ -1526,7 +1701,7 @@ function bind() {
   $('#themeBtn').textContent = document.documentElement.dataset.theme === 'dark' ? '밝게' : '어둡게';
   $('#resetBtn').addEventListener('click', () => {
     if (!confirm('명단·문구·배치를 처음 상태로 되돌릴까요?')) return;
-    state = freshState();
+    state = freshState(state.template);
     sheet = null;
     resetHistory(); applyViewToggles(); setStep(1); refresh();
   });
@@ -1538,13 +1713,13 @@ function bind() {
   });
   $('#borderReset').addEventListener('click', () => {
     const oldC = contentRect(state.border);
-    state.border = { ...BORDER_DEFAULT };
+    state.border = { ...tplBorder() };
     remapManualBoxes(oldC, contentRect(state.border));
     renderBorderPage(true); save();
   });
   $('.paper-side').addEventListener('click', e => {
     const r = e.target.closest('[data-reset]');
-    if (r) { setBorder(r.dataset.reset, BORDER_DEFAULT[r.dataset.reset]); renderBorderPage(true); return; }
+    if (r) { setBorder(r.dataset.reset, tplBorder()[r.dataset.reset]); renderBorderPage(true); return; }
     const o = e.target.closest('[data-orn]');
     if (o) { setBorder('ornType', o.dataset.orn); }
   });
@@ -1556,6 +1731,35 @@ function bind() {
   $('#testPrintBtn').addEventListener('click', testPrintNow);
   $('#printBtn').addEventListener('click', printNow);
   $('#tabHome').addEventListener('click', goHome);
+  // 마크 프레임
+  $('#pop-mark').addEventListener('click', e => {
+    const a = e.target.closest('[data-addmark]');
+    if (a) { addMark(a.dataset.addmark); return; }
+    const m = markSel ? markById(markSel) : null;
+    if (!m) return;
+    const sh = e.target.closest('[data-shape]');
+    if (sh) { m.shape = sh.dataset.shape; clampMark(m); renderMarkPop(); commitNow(); refresh(); return; }
+    if (e.target.closest('#markPick')) { pickMarkImage(m.id); return; }
+    if (e.target.closest('#markCrop')) { cropId = cropId === m.id ? null : m.id; renderMarkPop(); refresh(); return; }
+    if (e.target.closest('#markFit')) { m.zoom = 1; m.panX = 0; m.panY = 0; renderMarkPop(); commitNow(); refresh(); return; }
+    if (e.target.closest('#markClearImg')) { m.src = null; m.imgW = 0; m.imgH = 0; cropId = null; clampMark(m); renderMarkPop(); commitNow(); refresh(); return; }
+    if (e.target.closest('#markDel')) { removeMark(m.id); }
+  });
+  $('#pop-mark').addEventListener('input', e => {
+    const m = markSel ? markById(markSel) : null;
+    if (!m) return;
+    if (e.target.id === 'markZoom') { m.zoom = Number(e.target.value) / 100; clampMark(m); $('#markZoomV').textContent = `${Math.round(m.zoom * 100)}%`; refresh(); save(); return; }
+    if (e.target.id === 'markName') { m.name = e.target.value; refresh(); save(); return; }
+    const k = { markX: 'x', markY: 'y', markW: 'w', markH: 'h' }[e.target.id];
+    if (k) {
+      const v = parseFloat(e.target.value);
+      if (!Number.isFinite(v)) return;
+      m[k] = v;
+      if (m.shape === 'circle' && k === 'w') m.h = v;
+      clampMark(m); refresh(); save();
+    }
+  });
+  $('#markFile').addEventListener('change', e => { const f = e.target.files[0]; if (f && markUploadId) setMarkImage(markUploadId, f); });
 
   // 되돌리기
   $('#undoBtn').addEventListener('click', undo);
@@ -1579,7 +1783,7 @@ function bind() {
   $('#edReset').addEventListener('click', () => {
     if (!editing) return;
     if (editing.mode === 'template') {
-      const def = FIELD_DEFS.find(d => d.id === editing.field);
+      const def = tpl(state.template).defs.find(d => d.id === editing.field);
       if (def) { state.fields.find(x => x.id === editing.field).text = def.text; $('#edText').value = def.text; }
       $('#edReset').disabled = true; refresh(); return;
     }
@@ -1601,6 +1805,15 @@ function bind() {
   $('#sheet').addEventListener('dblclick', e => {
     if (state.step !== 3) return;
     const id = lastDownBox || (e.target.closest('[data-box]') || {}).dataset?.box;
+    if (id && id.startsWith('__mark:')) {
+      const m = markById(id.slice(7));
+      if (!m) return;
+      if (!m.src) { pickMarkImage(m.id); return; }
+      cropId = cropId === m.id ? null : m.id;
+      renderMarkPop(); refresh();
+      return;
+    }
+    if (id === '__stamp') return;
     if (id) { selectField(id); openEditor(id, 'template'); }
   });
   $('#edText').addEventListener('keydown', e => { if (e.key === 'Escape') closeEditor(); });
@@ -1698,7 +1911,7 @@ function bind() {
     if (pl) placeSelected(pl.dataset.place);
   });
   document.addEventListener('pointerdown', e => {
-    if (openPop && !e.target.closest('.pop') && !e.target.closest('[data-pop]')) closePops();
+    if (openPop && !e.target.closest('.pop') && !e.target.closest('[data-pop]') && !(openPop === 'mark' && e.target.closest('.mark-box'))) closePops();
   });
 
   // 도장
@@ -1739,6 +1952,16 @@ function bind() {
   $('#zoomVal').addEventListener('click', () => { state.zoom = 1; applyZoom(); save(); });
   // Ctrl(⌘)+휠, 트랙패드 핀치: 마우스 자리를 기준으로 확대·축소
   $('#canvas').addEventListener('wheel', e => {
+    // 자르기 중에는 휠로 틀 안 그림을 확대·축소
+    if (cropId && state.step === 3 && !(e.ctrlKey || e.metaKey)) {
+      const m = markById(cropId);
+      if (m) {
+        e.preventDefault();
+        m.zoom = (m.zoom || 1) * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0018));
+        clampMark(m); renderMarkPop(); refresh(); save();
+        return;
+      }
+    }
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     const k = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0022));
@@ -1756,6 +1979,18 @@ function bind() {
       return;
     }
     if (e.target.closest('input, textarea, select')) return;
+    // 고른 마크: 방향키로 옮기기, Delete로 지우기, Esc로 자르기 끝내기
+    if (state.step === 3 && markSel) {
+      const m = markById(markSel);
+      if (m && e.key.startsWith('Arrow')) {
+        const st = e.shiftKey ? 5 : 0.5;
+        if (e.key === 'ArrowLeft') m.x -= st; if (e.key === 'ArrowRight') m.x += st;
+        if (e.key === 'ArrowUp') m.y -= st; if (e.key === 'ArrowDown') m.y += st;
+        e.preventDefault(); renderMarkPop(); refresh(); return;
+      }
+      if (m && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); removeMark(m.id); return; }
+      if (e.key === 'Escape') { if (cropId) { cropId = null; } else { markSel = null; closePops(); } renderMarkPop(); refresh(); return; }
+    }
     // 3단계에서 고른 상자는 방향키로 0.5mm(Shift: 5mm)씩 옮긴다
     if (state.step === 3 && selIds().length && e.key.startsWith('Arrow')) {
       const st = e.shiftKey ? 5 : 0.5;

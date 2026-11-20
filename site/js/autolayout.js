@@ -20,6 +20,7 @@
 //   - 수여자가 두 줄(예: 직함 / 이름)이면 그만큼 칸을 키우되 아래 여백은 지킨다
 // 사용자가 직접 옮기거나 크기를 바꾼 칸(manual)은 건드리지 않는다.
 import { contentRect, PAPER, BORDER_DEFAULT } from './papers.js';
+import { US_BORDER } from './templates.js';
 import { fillTemplate } from './data.js';
 import { variantKey } from './fonts.js';
 
@@ -91,6 +92,7 @@ function titleWidth(n, T) {
  * 반환: { fields: {id: {x,y,w,h,size,minSize}}, stamp: {size}, sizes }
  */
 export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
+  if (doc.template === 'us') return computeUS(doc, store, border, paper, index);
   const st = textStats(doc, store, index);
   const em = id => Math.max(st[id] ? st[id].maxEm : 0, 1);
   const lineN = id => (st[id] && st[id].pars ? st[id].pars.filter(x => x > 0).length : 1) || 1;
@@ -204,10 +206,96 @@ export function applyAutoLayout(doc, store, border, paper = PAPER, index) {
     if (f.manual) continue;
     const a = res.fields[f.id];
     if (!a) continue;
-    for (const k of ['x', 'y', 'w', 'h', 'size', 'minSize']) {
+    for (const k of ['x', 'y', 'w', 'h', 'size', 'minSize', 'ruleW']) {
+      if (a[k] === undefined) continue;
       if (f[k] !== a[k]) { f[k] = a[k]; changed = true; }
     }
   }
   if (doc.stamp && !doc.stamp.manual && doc.stamp.size !== res.stamp.size) { doc.stamp.size = res.stamp.size; changed = true; }
   return { changed, res };
+}
+
+// ---- 미국식 증서 ----------------------------------------------------------------
+// 참고 증서 5종의 공통 순서를 위에서부터 쌓는다(겹치지 않게 앞 칸 아랫선 + 간격).
+//   발행처(대문자·넓은 자간) → 필기체 제목 + 이중선 → Presented to → 이름(가장 크게, 밑줄)
+//   → 소속(굵은 기울임) → 본문(가운데 기울임, 칸을 채우는 크기) … 날짜 → 서명선 → 서명자
+// 날짜·서명은 오른쪽 기둥(가운데가 글 영역의 66%)에 두어 왼쪽 아래 인장 마크와 짝을 맞춘다.
+// 견본 용지(미국식 테두리) 기준 mm로 계산한 뒤 지금 글 영역 비율로 옮긴다(글자 크기는 그대로).
+const US_REF = { issuer: 66, title: 84, date: 216, presenter: 243 };
+function computeUS(doc, store, border, paper, index) {
+  const st = textStats(doc, store, index);
+  const em = id => Math.max(st[id] ? st[id].maxEm : 0, 1);
+  const parsEm = id => (st[id] && st[id].pars && st[id].pars.length ? st[id].pars : [1]);
+  const C0 = contentRect(US_BORDER, paper), C = contentRect(border, paper);
+  const kx = C.w / C0.w, ky = C.h / C0.h;
+  const W = C0.w;
+
+  // 글자 크기(mm): 글 길이에 맞춰 한 줄에 들어가는 가장 큰 크기, 위아래 한도 안에서
+  const Iss = clamp((W * 0.8) / (em('issuer') * 1.5), 9 * PT, 13 * PT);
+  const T = clamp((W * 0.92) / (em('title') * 1.04), 22 * PT, 46 * PT);
+  const Pr = clamp((W * 0.8) / (em('presented') * 1.04), 10 * PT, 14 * PT);
+  const N = clamp((W * 0.82) / (em('name') * 1.04), 20 * PT, 42 * PT);
+  const A = clamp((W * 0.86) / (em('affiliation') * 1.04), 10 * PT, 16 * PT);
+  const colW = W * 0.62, colX = C0.x + W * 0.35;
+  const D = clamp((colW * 0.98) / (em('date') * 1.04), 9 * PT, 14 * PT);
+  const Ps = clamp((colW * 0.95) / (Math.max(...parsEm('presenter'), 1) * 1.06), 9 * PT, 14 * PT);
+
+  const out = {};
+  const r = v => Math.round(v * 10) / 10;
+  const put = (id, box, sizeMm, minRatio, extra = {}) => {
+    const size = toPt(sizeMm);
+    out[id] = {
+      x: r(C.x + (box.x - C0.x) * kx), y: r(C.y + (box.y - C0.y) * ky), w: r(box.w * kx), h: r(box.h),
+      size, minSize: Math.max(6, Math.round(size * minRatio * 2) / 2), ...extra,
+    };
+  };
+  const full = (w) => ({ x: C0.x + (W - w) / 2, w });
+
+  // 머리: 발행처, 제목(+이중선)
+  const issH = Iss * 1.7;
+  put('issuer', { ...full(W * 0.9), y: US_REF.issuer - issH / 2, h: issH }, Iss, 0.8);
+  const tH = T * 1.45;
+  const tY = US_REF.title - tH / 2;
+  const tRule = clamp(em('title') * T * 1.04 + 24, W * 0.5, W * 0.9);
+  put('title', { ...full(W * 0.96), y: tY, h: tH }, T, 0.7, { ruleW: r(tRule * kx) });
+  // 이중선(칸 아래 0.8mm + 1.3mm) 다음부터 쌓는다
+  let y = tY + tH + 2.4 + 6;
+  const prH = Pr * 1.6;
+  put('presented', { ...full(W * 0.86), y, h: prH }, Pr, 0.8);
+  y += prH + 1;
+  const nH = N * 1.45;
+  const nRule = clamp(em('name') * N * 1.04 + 18, W * 0.45, W * 0.86);
+  put('name', { ...full(W * 0.92), y, h: nH }, N, 0.7, { ruleW: r(nRule * kx) });
+  y += nH + 0.6 + 3.2;   // 밑줄 + 간격
+  const aH = A * 1.6;
+  put('affiliation', { ...full(W * 0.9), y, h: aH }, A, 0.75);
+  y += aH + 6;
+
+  // 꼬리: 서명자(오른쪽 기둥, 서명선 위에 서명 칸 자리 9mm), 날짜
+  const pLines = Math.min(3, (st.presenter && st.presenter.pars ? st.presenter.pars.filter(x => x > 0).length : 1) || 1);
+  const pH = Ps * (1.6 + (pLines - 1) * 1.3);
+  const pY = Math.min(US_REF.presenter, C0.y + C0.h - 10 - pH);
+  put('presenter', { x: colX, y: pY, w: colW, h: pH }, Ps, 0.75, { ruleW: r(colW * 0.72 * kx) });
+  const dH = D * 1.6;
+  const dY = Math.min(US_REF.date - dH / 2, pY - 1.2 - 12 - dH);  // 서명선 위 12mm는 손 서명 자리
+  put('date', { x: colX, y: dY, w: colW, h: dH }, D, 0.75);
+
+  // 본문: 소속 아래부터 날짜 위 8mm까지, 가운데 정렬. 칸을 채우는 가장 큰 크기(11~17.5pt)
+  const bodyF = doc.fields.find(f => f.id === 'body');
+  const lh = (bodyF ? bodyF.lineHeight : 138) / 100;
+  const bw = W * 0.86;
+  const top = y, bottom = dY - 8;
+  let B = bodySize(parsEm('body'), bw, s => bottom - top - s * 0.3, lh * 100, 17.5 * PT, 11 * PT);
+  if (B <= 11 * PT) B = bodySize(parsEm('body'), bw, s => bottom - top, lh * 100, 11 * PT, 8 * PT);
+  // 짧은 본문은 남는 공간 가운데 쪽으로(40%)
+  const used = blockH(lineCount(parsEm('body'), B, bw), B, lh);
+  const spare = (bottom - top) - used;
+  const bTop = top + (spare > 0 ? Math.min(spare * 0.4, 16) : 0);
+  put('body', { ...full(bw), y: bTop, h: Math.max(B * 1.5, bottom - bTop) }, B, 0.8);
+
+  return {
+    fields: out,
+    stamp: { size: 18 },
+    sizes: Object.fromEntries(Object.entries(out).map(([k, v]) => [k, v.size])),
+  };
 }

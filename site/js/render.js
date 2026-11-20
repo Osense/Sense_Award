@@ -35,11 +35,31 @@ export function computeRecord(doc, index, store) {
     }
     const fb = fallback && fallback !== font ? fallback : null;
     const lay = layoutField(text, f, f, font, fb);
-    out.fields.push({ field: f, text, edited, ...lay, font, fallback: fb, faux: needsFauxBold(f.font, f.bold) });
+    out.fields.push({ field: f, text, edited, ...lay, font, fallback: fb, faux: needsFauxBold(f.font, f.bold), rules: fieldRules(f) });
   }
   out.missing = [...missing];
   out.stamp = stampPlacement(per ? { ...doc, stamp: { ...doc.stamp, size: per.stampSize }, fields: fieldList } : doc, out.fields);
   return out;
+}
+
+/**
+ * 칸에 딸린 장식선(칸을 옮기면 같이 움직인다). 반환: [{x,y,w,h,color}] (mm, 채운 사각형)
+ *  double-below: 칸 아래 이중선(굵은 선 + 가는 선) — 제목
+ *  below: 칸 아래 밑줄 — 받는 사람 이름
+ *  sig-above: 칸 위 서명선 — 서명자
+ */
+export function fieldRules(f) {
+  if (!f.rule) return [];
+  const color = f.ruleColor || f.color || '#111111';
+  const w = Math.min(f.ruleW || f.w, f.w * 1.6);
+  const x = f.x + (f.w - w) / 2;
+  if (f.rule === 'double-below') return [
+    { x, y: f.y + f.h + 0.8, w, h: 0.5, color },
+    { x, y: f.y + f.h + 1.9, w, h: 0.22, color },
+  ];
+  if (f.rule === 'below') return [{ x, y: f.y + f.h + 0.3, w, h: 0.28, color }];
+  if (f.rule === 'sig-above') return [{ x, y: f.y - 1.2, w, h: 0.3, color }];
+  return [];
 }
 
 /** 도장 자리: 수여자 마지막 글자에 걸치게 */
@@ -90,6 +110,7 @@ export function textLayerSvg(rec) {
   for (const res of rec.fields) {
     if (res.pending) continue;
     const faux = res.faux ? ` stroke="${res.field.color}" stroke-width="${r2(res.font.upm * 0.035)}" stroke-linejoin="round"` : '';
+    for (const r of res.rules || []) s += `<rect x="${r2(r.x)}" y="${r2(r.y)}" width="${r2(r.w)}" height="${r2(r.h)}" fill="${r.color}"/>`;
     s += `<g data-field="${res.field.id}" fill="${res.field.color || '#111'}"${faux}>${glyphPathsSvg(res)}</g>`;
   }
   return s;

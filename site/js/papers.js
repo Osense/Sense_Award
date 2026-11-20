@@ -164,7 +164,7 @@ export function borderSvg(b, { paper = PAPER, guides = false, bg = true } = {}) 
 }
 
 // 칸 정의(글꼴·정렬 기본값). 위치·크기·글자 크기는 autolayout.js가 정한다.
-const base = {
+export const FIELD_BASE = {
   font: 'chosun-gs', bold: false, color: '#111111',
   align: 'left', valign: 'middle', lineHeight: 160, maxLines: 1,
   scale: 100, minScale: 80, spacing: 0, minSpacing: -8,
@@ -185,7 +185,7 @@ export const FIELD_DEFS = [
 
 export function defaultFields() {
   // 자리값은 자동 배치가 곧바로 채운다
-  return FIELD_DEFS.map(d => ({ ...base, ...d, x: 30, y: 30, w: 100, h: 10, size: 16, minSize: 12 }));
+  return FIELD_DEFS.map(d => ({ ...FIELD_BASE, ...d, x: 30, y: 30, w: 100, h: 10, size: 16, minSize: 12 }));
 }
 
 export const SAMPLE = {

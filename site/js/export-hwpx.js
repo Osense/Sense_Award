@@ -23,7 +23,11 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
  *         offset, scale(배율 보정, 1=그대로), stampPng: Uint8Array|null, stampPx:{w,h} }
  */
 export async function buildHwpx(opts) {
-  const { JSZip, template, doc, store, indices, paper, offset = { x: 0, y: 0 }, scale: k = 1, stampPng, stampPx } = opts;
+  const { JSZip, template, doc, store, indices, paper, offset = { x: 0, y: 0 }, scale: k = 1, stampPng, stampPx, marks = [] } = opts;
+  // 그림 목록: BIN0001 도장, BIN0002~ 마크 프레임
+  const bins = [];
+  if (stampPng) bins.push({ id: 'BIN0001', bytes: stampPng });
+  marks.forEach((m, i) => bins.push({ id: `BIN${String(i + 2).padStart(4, '0')}`, bytes: m.png, mark: m }));
   // 배율 보정은 용지 가운데 기준, 위치 보정은 그다음
   const PX = x => paper.w / 2 + (x - paper.w / 2) * k + offset.x;
   const PY = y => paper.h / 2 + (y - paper.h / 2) * k + offset.y;
@@ -50,18 +54,18 @@ export async function buildHwpx(opts) {
   const paraCount = Number((header.match(/<hh:paraProperties itemCnt="(\d+)"/) || [])[1] || 0);
   const charPrs = new Map(); // key → {id, xml}
   const paraPrs = new Map();
-  const charPrId = (face, sizePt, scale, spacing, bold, color) => {
+  const charPrId = (face, sizePt, scale, spacing, bold, color, italic = false) => {
     const height = Math.round(sizePt * 100);
     const ratio = Math.round(scale);
     const sp = Math.round(spacing);
-    const key = [face, height, ratio, sp, bold ? 1 : 0, color].join('|');
+    const key = [face, height, ratio, sp, bold ? 1 : 0, color, italic ? 1 : 0].join('|');
     if (!charPrs.has(key)) {
       const id = charCount + charPrs.size;
       const all = v => LANGS.map(l => `${langAttr(l)}="${v}"`).join(' ');
       const fontRef = LANGS.map(l => `${langAttr(l)}="${faceIndex[l]?.[face] ?? 0}"`).join(' ');
       const xml = `<hh:charPr id="${id}" height="${height}" textColor="${color}" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="2">`
         + `<hh:fontRef ${fontRef}/><hh:ratio ${all(ratio)}/><hh:spacing ${all(sp)}/><hh:relSz ${all(100)}/><hh:offset ${all(0)}/>`
-        + (bold ? '<hh:bold/>' : '')
+        + (bold ? '<hh:bold/>' : '') + (italic ? '<hh:italic/>' : '')
         + '<hh:underline type="NONE" shape="SOLID" color="#000000"/><hh:strikeout shape="NONE" color="#000000"/><hh:outline type="NONE"/><hh:shadow type="NONE" color="#C0C0C0" offsetX="10" offsetY="10"/></hh:charPr>';
       charPrs.set(key, { id, xml });
     }
@@ -98,14 +102,26 @@ export async function buildHwpx(opts) {
     // 도장은 글씨 뒤로: 가장 아래(zOrder 0)에 '글 뒤로' 배치
     if (rec.stamp && stampPng) {
       const s = rec.stamp;
-      objs.push(picXml({ id: nextId(), z: z++, x: PX(s.x), y: PY(s.y), w: s.w * k, h: s.h * k, px: stampPx }));
+      objs.push(picXml({ id: nextId(), z: z++, x: PX(s.x), y: PY(s.y), w: s.w * k, h: s.h * k, px: stampPx, bin: 'BIN0001' }));
+    }
+    // 마크 프레임(틀 모양으로 구운 PNG)도 글 뒤로
+    for (const b of bins) {
+      if (!b.mark) continue;
+      const m = b.mark;
+      objs.push(picXml({ id: nextId(), z: z++, x: PX(m.x), y: PY(m.y), w: m.w * k, h: m.h * k, px: { w: m.pxW, h: m.pxH }, bin: b.id }));
+    }
+    // 장식선(이중선·밑줄·서명선): 선만 있는 납작한 그리기 개체
+    for (const res of rec.fields) {
+      for (const r of (res.pending ? [] : res.rules || [])) {
+        objs.push(lineXml({ id: nextId(), z: z++, x: PX(r.x), y: PY(r.y + r.h / 2), w: r.w * k, thick: r.h * k, color: r.color }));
+      }
     }
     for (const res of rec.fields) {
       if (res.pending || !res.lines.length) continue;
       if (res.overflow) warnings.push({ index: idx, field: res.field.label });
       const f = res.field;
       const face = fontInfo(f.font).hwpFace;
-      const cId = charPrId(face, res.sizePt * k, res.scale, res.spacing, f.bold, (f.color || '#111111').toUpperCase());
+      const cId = charPrId(face, res.sizePt * k, res.scale, res.spacing, f.bold, (f.color || '#111111').toUpperCase(), !!fontInfo(f.font).italic);
       const pId = paraPrId(f.align, f.lineHeight);
       const text = res.lines.map(l => esc(l.text)).join('<hp:lineBreak/>');
       if (!text.replace(/<hp:lineBreak\/>/g, '').trim()) continue;
@@ -131,9 +147,9 @@ export async function buildHwpx(opts) {
     `<hh:charProperties itemCnt="${charCount + charPrs.size}">${inner}${[...charPrs.values()].map(c => c.xml).join('')}</hh:charProperties>`);
   header = header.replace(/<hh:paraProperties itemCnt="\d+">([\s\S]*?)<\/hh:paraProperties>/, (m, inner) =>
     `<hh:paraProperties itemCnt="${paraCount + paraPrs.size}">${inner}${[...paraPrs.values()].map(p => p.xml).join('')}</hh:paraProperties>`);
-  if (stampPng) {
-    header = header.replace('</hh:refList>', '<hh:binDataList itemCnt="1"><hh:binItem id="0" Type="Embedding" BinData="BIN0001.png" Format="png"/></hh:binDataList></hh:refList>');
-    hpf = hpf.replace('</opf:manifest>', '<opf:item id="BIN0001" href="BinData/BIN0001.png" media-type="image/png" isEmbeded="1"/></opf:manifest>');
+  if (bins.length) {
+    header = header.replace('</hh:refList>', `<hh:binDataList itemCnt="${bins.length}">${bins.map((b, i) => `<hh:binItem id="${i}" Type="Embedding" BinData="${b.id}.png" Format="png"/>`).join('')}</hh:binDataList></hh:refList>`);
+    hpf = hpf.replace('</opf:manifest>', `${bins.map(b => `<opf:item id="${b.id}" href="BinData/${b.id}.png" media-type="image/png" isEmbeded="1"/>`).join('')}</opf:manifest>`);
   }
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   hpf = hpf.replace(/synthetic-fixture-author/g, '쎈스 어워드')
@@ -170,7 +186,7 @@ export async function buildHwpx(opts) {
     if (p === 'Preview/PrvText.txt') v = '상장';
     zip.file(p, v);
   }
-  if (stampPng) zip.file('BinData/BIN0001.png', stampPng);
+  for (const b of bins) zip.file(`BinData/${b.id}.png`, b.bytes);
   const bytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/hwp+zip' });
   return { bytes, warnings };
 }
@@ -194,7 +210,7 @@ function rectXml({ id, z, x, y, w, h, vAlign, para }) {
     + '<hp:outMargin left="0" right="0" top="0" bottom="0"/></hp:rect>';
 }
 
-function picXml({ id, z, x, y, w, h, px }) {
+function picXml({ id, z, x, y, w, h, px, bin = 'BIN0001' }) {
   const W = hu(w), H = hu(h);
   const dw = Math.round((px?.w || 100) * 75), dh = Math.round((px?.h || 100) * 75);
   return `<hp:pic textWrap="BEHIND_TEXT" textFlow="BOTH_SIDES" reverse="0" id="${id}" zOrder="${z}" numberingType="PICTURE" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}">`
@@ -202,7 +218,21 @@ function picXml({ id, z, x, y, w, h, px }) {
     + `<hp:rotationInfo angle="0" centerX="${Math.round(W / 2)}" centerY="${Math.round(H / 2)}" rotateimage="1"/>${MATRIX}`
     + `<hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${W}" y="0"/><hc:pt2 x="${W}" y="${H}"/><hc:pt3 x="0" y="${H}"/></hp:imgRect>`
     + `<hp:imgClip left="0" right="${dw}" top="0" bottom="${dh}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hp:imgDim dimwidth="${dw}" dimheight="${dh}"/>`
-    + '<hc:img binaryItemIDRef="BIN0001" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/>'
+    + `<hc:img binaryItemIDRef="${bin}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/>`
     + `<hp:sz width="${W}" widthRelTo="ABSOLUTE" height="${H}" heightRelTo="ABSOLUTE" protect="0"/>${posXml(x, y)}`
     + '<hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:shapeComment/></hp:pic>';
+}
+
+// 가로선: 높이 0인 그리기 사각형의 테두리 선으로 그린다(선 굵기 = thick)
+function lineXml({ id, z, x, y, w, thick, color }) {
+  const W = hu(w), H = 0;
+  const lw = Math.max(1, hu(thick));
+  return `<hp:rect id="${id}" zOrder="${z}" numberingType="NONE" textWrap="BEHIND_TEXT" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}" ratio="0">`
+    + `<hp:offset x="0" y="0"/><hp:orgSz width="${W}" height="${H}"/><hp:curSz width="${W}" height="${H}"/><hp:flip horizontal="0" vertical="0"/>`
+    + `<hp:rotationInfo angle="0" centerX="${Math.round(W / 2)}" centerY="0" rotateimage="1"/>${MATRIX}`
+    + `<hp:lineShape color="${color}" width="${lw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>`
+    + '<hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>'
+    + `<hc:pt0 x="0" y="0"/><hc:pt1 x="${W}" y="0"/><hc:pt2 x="${W}" y="${H}"/><hc:pt3 x="0" y="${H}"/>`
+    + `<hp:sz width="${W}" widthRelTo="ABSOLUTE" height="${H}" heightRelTo="ABSOLUTE" protect="0"/>${posXml(x, y)}`
+    + '<hp:outMargin left="0" right="0" top="0" bottom="0"/></hp:rect>';
 }

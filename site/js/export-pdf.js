@@ -6,7 +6,7 @@ const MM = 72 / 25.4;
 
 /**
  * opts: { PDFLib, fontkit, doc, store, indices, paper:{w,h}, offset:{x,y}, scale(배율 보정, 1=그대로),
- *         stampPng: Uint8Array|null, border: 테두리 설정|null(넣지 않음), onProgress,
+ *         stampPng: Uint8Array|null, marks: [{x,y,w,h,png:Uint8Array}], border: 테두리 설정|null(넣지 않음), onProgress,
  *         subset: (bytes, codepoints) => Promise<Uint8Array> — HarfBuzz 서브셋 }
  */
 export async function buildPdf(opts) {
@@ -50,6 +50,8 @@ export async function buildPdf(opts) {
   }
   const embedFont = async (handle) => embedded.get(handle.key);
   const stampImg = stampPng ? await pdf.embedPng(stampPng) : null;
+  const markImgs = [];
+  for (const mk of opts.marks || []) markImgs.push({ ...mk, img: await pdf.embedPng(mk.png) });
   const W = paper.w * MM;
   const H = paper.h * MM;
   const warnings = [];
@@ -83,6 +85,16 @@ export async function buildPdf(opts) {
       }
       return fontKeys.get(handle.key);
     };
+    // 마크 프레임(틀 모양으로 구운 PNG): 테두리 위, 도장·글씨 아래
+    for (const mk of markImgs) {
+      page.drawImage(mk.img, { x: (mk.x + offset.x) * MM, y: H - (mk.y + mk.h + offset.y) * MM, width: mk.w * MM, height: mk.h * MM });
+    }
+    // 칸에 딸린 장식선(이중선·밑줄·서명선)
+    for (const res of rec.fields) {
+      for (const r of (res.pending ? [] : res.rules || [])) {
+        page.drawRectangle({ x: (r.x + offset.x) * MM, y: H - (r.y + r.h + offset.y) * MM, width: r.w * MM, height: r.h * MM, color: rgb(...hexToRgb(r.color)), borderWidth: 0 });
+      }
+    }
     for (const res of rec.fields) {
       if (res.pending) continue;
       if (res.overflow) warnings.push({ index: idx, field: res.field.label });

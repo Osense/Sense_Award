@@ -34,6 +34,31 @@ export const FONTS = [
     ttf: ['fonts/print/GowunDodum-Regular.ttf'],
     license: 'SIL OFL 1.1', url: 'https://fonts.google.com/specimen/Gowun+Dodum',
   },
+  // ---- 영문(미국식 증서) — 한글은 나눔명조로 대신 그린다
+  {
+    id: 'pinyon-script', name: 'Pinyon Script', hwpFace: 'Pinyon Script', kind: '영문 필기체', latin: true,
+    regular: 'fonts/print/PinyonScript-Regular.ttf', bold: null,
+    ttf: ['fonts/print/PinyonScript-Regular.ttf'],
+    license: 'SIL OFL 1.1', url: 'https://fonts.google.com/specimen/Pinyon+Script',
+  },
+  {
+    id: 'cormorant', name: 'Cormorant Garamond', hwpFace: 'Cormorant Garamond', kind: '영문 세리프', latin: true,
+    regular: 'fonts/print/CormorantGaramond-Regular.ttf', bold: 'fonts/print/CormorantGaramond-Bold.ttf',
+    ttf: ['fonts/print/CormorantGaramond-Regular.ttf', 'fonts/print/CormorantGaramond-Bold.ttf'],
+    license: 'SIL OFL 1.1', url: 'https://fonts.google.com/specimen/Cormorant+Garamond',
+  },
+  {
+    id: 'cormorant-italic', name: 'Cormorant Garamond 기울임', hwpFace: 'Cormorant Garamond', kind: '영문 기울임', latin: true, italic: true,
+    regular: 'fonts/print/CormorantGaramond-Italic.ttf', bold: 'fonts/print/CormorantGaramond-BoldItalic.ttf',
+    ttf: ['fonts/print/CormorantGaramond-Italic.ttf', 'fonts/print/CormorantGaramond-BoldItalic.ttf'],
+    license: 'SIL OFL 1.1', url: 'https://fonts.google.com/specimen/Cormorant+Garamond',
+  },
+  {
+    id: 'unifraktur', name: 'UnifrakturMaguntia', hwpFace: 'UnifrakturMaguntia', kind: '영문 고딕 장식체', latin: true,
+    regular: 'fonts/print/UnifrakturMaguntia-Regular.ttf', bold: null,
+    ttf: ['fonts/print/UnifrakturMaguntia-Regular.ttf'],
+    license: 'SIL OFL 1.1', url: 'https://fonts.google.com/specimen/UnifrakturMaguntia',
+  },
 ];
 
 export const DEFAULT_FONT = 'chosun-gs';

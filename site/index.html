@@ -60,7 +60,7 @@
         <div class="page-head compact">
           <small>1단계</small>
           <h1>상장 용지</h1>
-          <p class="lead">이 용지는 시판되는 보통 상장 용지 규격(A4, 210×297mm)을 따릅니다. 금색 테두리는 화면에서만 보이는 안내선이라 인쇄에는 들어가지 않아요.</p>
+          <p class="lead" id="paperLead">이 용지는 시판되는 보통 상장 용지 규격(A4, 210×297mm)을 따릅니다. 금색 테두리는 화면에서만 보이는 안내선이라 인쇄에는 들어가지 않아요.</p>
           <p class="lead"><b>테두리를 조정하려면 아래의 수치를 조정하세요.</b> 갖고 있는 상장 용지의 테두리를 자로 재서 맞추면, 다음 단계에서 그 테두리를 배경으로 글이 자동 배치돼요.</p>
         </div>
         <div class="reset-all">
@@ -218,6 +218,7 @@
       <span class="grow"></span>
       <div class="rb-group">
         <button id="rbAutoAll" title="직접 옮긴 칸까지 모두 자동 배치로 되돌리기">전체 자동</button>
+        <button class="drop" data-pop="mark" title="원형·사각 틀에 로고·인장·문장 그림 넣기">마크</button>
         <button class="drop" data-pop="stamp">도장</button>
       </div>
 
@@ -252,6 +253,31 @@
         </div>
         <p class="hint" id="posNote"></p>
         <p class="hint">여러 상자: Shift·Ctrl을 누르고 누르거나, 빈 곳을 끌어 고르기 · Ctrl+A 모두 고르기<br>끌 때 Shift를 누르면 가로나 세로로만 움직여요 · 방향키 0.5mm, Shift+방향키 5mm</p>
+      </div>
+      <div class="pop pop-mark" id="pop-mark" hidden>
+        <h4>마크 프레임</h4>
+        <p class="hint">캔바의 프레임처럼 틀에 로고·인장·문장 그림을 채워요. 빈 틀을 누르면 그림을 고르고, 그림이 든 틀을 두 번 누르면 틀 안에서 그림을 끌어 옮기고 휠로 확대해요.</p>
+        <div class="mark-add"><span>틀 넣기</span><button data-addmark="circle">원형</button><button data-addmark="square">사각</button><button data-addmark="rounded">둥근 사각</button></div>
+        <div id="markBody" hidden>
+          <div class="mark-head"><input id="markName" class="mark-name" aria-label="마크 이름" maxlength="20"><button class="ghost small danger" id="markDel" title="이 틀 지우기 (Delete)">틀 지우기</button></div>
+          <div class="seg mark-shape" id="markShape"></div>
+          <div class="mark-btns">
+            <button class="small primary" id="markPick">그림 넣기</button>
+            <button class="small" id="markCrop" title="틀 안에서 그림 옮기기·확대 (틀을 두 번 눌러도 돼요)">틀 안에서 자르기</button>
+            <button class="small" id="markFit" title="확대·이동을 처음 상태로">맞춤 처음대로</button>
+            <button class="small ghost" id="markClearImg">그림 빼기</button>
+          </div>
+          <label class="lbl mark-zoom">틀 안 그림 확대 <input type="range" id="markZoom" min="100" max="600" step="1"><span id="markZoomV"></span></label>
+          <div class="row four">
+            <label class="lbl">가로<input type="number" id="markX" step="0.5"></label>
+            <label class="lbl">세로<input type="number" id="markY" step="0.5"></label>
+            <label class="lbl">너비<input type="number" id="markW" step="0.5" min="6"></label>
+            <label class="lbl">높이<input type="number" id="markH" step="0.5" min="6"></label>
+          </div>
+          <p class="hint">빈 틀은 화면에만 점선으로 보이고 인쇄·PDF·한글에는 들어가지 않아요. 그림은 틀 모양 그대로 잘려 들어가요.</p>
+        </div>
+        <p class="hint" id="markEmpty">틀을 누르면 여기서 고칠 수 있어요.</p>
+        <input type="file" id="markFile" accept="image/*" hidden>
       </div>
       <div class="pop" id="pop-stamp" hidden>
         <h4>수여자 도장</h4>
@@ -300,7 +326,7 @@
             <button class="primary big" id="pdfBtn">PDF 내려받기</button>
             <button class="primary big alt" id="hwpxBtn">한글(HWPX) 내려받기</button>
           </div>
-          <label class="check"><input type="checkbox" id="bgInPdf"> 테두리도 인쇄하기 (빈 종이에 인쇄할 때)</label>
+          <label class="check"><input type="checkbox" id="bgInPdf"> 테두리도 함께 인쇄 (빈 종이에 인쇄할 때)</label>
           <div class="progress" id="progress" hidden><div class="bar"><i></i></div><span></span></div>
         </div>
         <div class="card print-card">
