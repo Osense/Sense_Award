@@ -47,45 +47,60 @@
           <p class="lead">이 용지는 시판되는 보통 상장 용지 규격(A4, 210×297mm)을 따릅니다. 금색 테두리는 화면에서만 보이는 안내선이라 인쇄에는 들어가지 않아요.</p>
           <p class="lead"><b>테두리를 조정하려면 아래의 수치를 조정하세요.</b> 갖고 있는 상장 용지의 테두리를 자로 재서 맞추면, 다음 단계에서 그 테두리를 배경으로 글이 자동 배치돼요.</p>
         </div>
+        <div class="reset-all">
+          <button class="small" id="borderReset">견본 디자인으로 전체 초기화</button>
+          <span class="hint" id="borderNote"></span>
+        </div>
         <div class="card bcard">
           <h3>테두리 위치와 모양</h3>
           <div class="bctl" data-bkey="inset">
-            <div class="bctl-head"><label for="b-inset">테두리 위치</label><span class="hint">용지 가장자리 → 굵은 선</span></div>
+            <div class="bctl-head"><label for="b-inset">테두리 위치</label><span class="hint">용지 가장자리 → 굵은 선</span><button class="reset-one" data-reset="inset" title="이 항목만 견본 값으로">기본값</button></div>
             <div class="bctl-in"><input type="range" data-b="inset" aria-label="테두리 위치"><span class="num"><input type="number" id="b-inset" data-b="inset"><em>mm</em></span></div>
           </div>
           <div class="bctl" data-bkey="thick">
-            <div class="bctl-head"><label for="b-thick">굵은 선 두께</label></div>
+            <div class="bctl-head"><label for="b-thick">굵은 선 두께</label><button class="reset-one" data-reset="thick" title="이 항목만 견본 값으로">기본값</button></div>
             <div class="bctl-in"><input type="range" data-b="thick" aria-label="굵은 선 두께"><span class="num"><input type="number" id="b-thick" data-b="thick"><em>mm</em></span></div>
           </div>
           <div class="bctl" data-bkey="gap">
-            <div class="bctl-head"><label for="b-gap">두 선 사이 간격</label><span class="hint">굵은 선 → 가는 선</span></div>
+            <div class="bctl-head"><label for="b-gap">두 선 사이 간격</label><span class="hint">굵은 선 → 가는 선</span><button class="reset-one" data-reset="gap" title="이 항목만 견본 값으로">기본값</button></div>
             <div class="bctl-in"><input type="range" data-b="gap" aria-label="두 선 사이 간격"><span class="num"><input type="number" id="b-gap" data-b="gap"><em>mm</em></span></div>
           </div>
           <div class="bctl" data-bkey="thin">
-            <div class="bctl-head"><label for="b-thin">가는 선 두께</label><span class="hint">0이면 없음</span></div>
+            <div class="bctl-head"><label for="b-thin">가는 선 두께</label><span class="hint">0이면 없음</span><button class="reset-one" data-reset="thin" title="이 항목만 견본 값으로">기본값</button></div>
             <div class="bctl-in"><input type="range" data-b="thin" aria-label="가는 선 두께"><span class="num"><input type="number" id="b-thin" data-b="thin"><em>mm</em></span></div>
           </div>
           <div class="bctl" data-bkey="notch">
-            <div class="bctl-head"><label for="b-notch">모서리 오목한 크기</label><span class="hint">0이면 직각</span></div>
+            <div class="bctl-head"><label for="b-notch">모서리 오목한 크기</label><span class="hint">0이면 직각</span><button class="reset-one" data-reset="notch" title="이 항목만 견본 값으로">기본값</button></div>
             <div class="bctl-in"><input type="range" data-b="notch" aria-label="모서리 오목한 크기"><span class="num"><input type="number" id="b-notch" data-b="notch"><em>mm</em></span></div>
           </div>
-          <div class="bctl" data-bkey="ornament">
-            <div class="bctl-head"><label for="b-ornament">모서리 장식 크기</label><span class="hint">0이면 없음</span></div>
-            <div class="bctl-in"><input type="range" data-b="ornament" aria-label="모서리 장식 크기"><span class="num"><input type="number" id="b-ornament" data-b="ornament"><em>배</em></span></div>
-          </div>
 
-          <div class="bctl color"><div class="bctl-head"><label for="b-color">테두리 색</label></div><div class="bctl-in"><input type="color" id="b-color" data-b="color"></div></div>
+          <div class="bctl color" data-bkey="color"><div class="bctl-head"><label for="b-color">테두리 색</label><button class="reset-one" data-reset="color" title="이 항목만 견본 값으로">기본값</button></div><div class="bctl-in"><input type="color" id="b-color" data-b="color"></div></div>
+        </div>
+        <div class="card bcard">
+          <div class="card-head">
+            <h3>모서리 장식</h3>
+            <label class="switch" title="모서리 장식 켜기·끄기"><input type="checkbox" id="b-ornOn"><span class="track"><span class="knob"></span></span><span class="sw-label" id="ornOnLabel">꺼짐</span></label>
+          </div>
+          <div class="orn-body" id="ornBody" hidden>
+            <div class="bctl" data-bkey="ornType">
+              <div class="bctl-head"><label>종류</label><button class="reset-one" data-reset="ornType" title="이 항목만 견본 값으로">기본값</button></div>
+              <div class="seg orn-types" id="ornTypes"></div>
+            </div>
+          <div class="bctl" data-bkey="ornament">
+            <div class="bctl-head"><label for="b-ornament">장식 크기</label><button class="reset-one" data-reset="ornament" title="이 항목만 견본 값으로">기본값</button></div>
+            <div class="bctl-in"><input type="range" data-b="ornament" aria-label="장식 크기"><span class="num"><input type="number" id="b-ornament" data-b="ornament"><em>배</em></span></div>
+          </div>
+          </div>
         </div>
         <div class="card bcard">
           <h3>글 영역</h3>
-          <p class="hint">보라색 점선이 글이 놓이는 영역이에요. 이 안에서 글 상자가 황금비에 맞춰 자동 배치돼요.</p>
+          <p class="hint">보라색 점선이 글이 놓이는 영역이에요. 영역을 줄이면 안쪽 글 상자도 함께 오므라들어요(직접 옮긴 상자도 같은 비율로).</p>
           <div class="bctl" data-bkey="pad">
-            <div class="bctl-head"><label for="b-pad">테두리 안쪽 여백</label><span class="hint">가는 선 → 글 영역</span></div>
+            <div class="bctl-head"><label for="b-pad">테두리 안쪽 여백</label><span class="hint">가는 선 → 글 영역</span><button class="reset-one" data-reset="pad" title="이 항목만 견본 값으로">기본값</button></div>
             <div class="bctl-in"><input type="range" data-b="pad" aria-label="테두리 안쪽 여백"><span class="num"><input type="number" id="b-pad" data-b="pad"><em>mm</em></span></div>
           </div>
 
         </div>
-        <div class="row"><button class="small" id="borderReset">시판 기본값으로</button><span class="hint" id="borderNote"></span></div>
       </aside>
     </div>
     <div class="page-foot"><span></span><button class="primary" data-goto="2">다음: 명단 넣기</button></div>

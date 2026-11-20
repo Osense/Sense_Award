@@ -450,3 +450,30 @@ button.alt { background: var(--brand-grad); border: 0; }
 .box.sel.primary .area { stroke-width: 0.6; }
 .pop .place-grid.multi-only { border-top: 1px solid var(--divider); padding-top: 8px; }
 .pop .place-grid button:disabled { opacity: .4; }
+
+/* 1단계: 초기화·장식 스위치 */
+.reset-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.reset-all button:disabled { opacity: .45; cursor: default; }
+.reset-one { margin-left: auto; min-height: 0; padding: 1px 8px; font-size: 11px; font-weight: 600; border-radius: 99px; background: var(--accent-bg); color: var(--accent); border: 1px solid transparent; }
+.reset-one:hover { border-color: var(--accent); background: var(--accent-bg); }
+.bctl-head .hint { margin-right: 4px; }
+.bctl.changed .bctl-head label::after { content: ''; }
+.bctl.changed .bctl-head label { color: var(--accent); }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
+.switch .track { position: relative; width: 38px; height: 22px; border-radius: 99px; background: var(--border-strong); transition: background .15s; }
+.switch .knob { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px oklch(0 0 0 / .25); transition: transform .15s; }
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track .knob { transform: translateX(16px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--amber); outline-offset: 2px; }
+.sw-label { font-size: 12.5px; font-weight: 600; color: var(--muted); min-width: 28px; }
+.orn-body { display: grid; gap: 4px; margin-top: 4px; }
+.orn-types { margin-top: 4px; }
+.orn-types button { min-width: 56px; }
+
+/* 도장 상자(3단계) */
+.stamp-box .area { stroke: oklch(0.6 0.2 25 / 0.7); fill: oklch(0.6 0.2 25 / 0.04); }
+.stamp-box.sel .area { stroke: oklch(0.6 0.2 25); fill: oklch(0.6 0.2 25 / 0.08); stroke-dasharray: none; }
+.stamp-box .tag { fill: oklch(0.55 0.2 25); }
+.stamp-box .handle { stroke: oklch(0.6 0.2 25); }

@@ -66,6 +66,15 @@ export async function buildPdf(opts) {
         else page.drawSvgPath(s.d, { ...o, borderColor: rgb(...hexToRgb(s.stroke)), borderWidth: s.width, borderLineCap: s.cap ? 1 : 0 });
       }
     }
+    // 도장은 글씨 뒤에: 글보다 먼저 찍는다
+    if (rec.stamp && stampImg) {
+      const s = rec.stamp;
+      page.drawImage(stampImg, {
+        x: (s.x + offset.x) * MM,
+        y: H - (s.y + s.h + offset.y) * MM,
+        width: s.w * MM, height: s.h * MM,
+      });
+    }
     const fontKeys = new Map();
     const keyFor = async (handle) => {
       if (!fontKeys.has(handle.key)) {
@@ -97,14 +106,6 @@ export async function buildPdf(opts) {
       }
       ops.push(endText(), popGraphicsState());
       page.pushOperators(...ops);
-    }
-    if (rec.stamp && stampImg) {
-      const s = rec.stamp;
-      page.drawImage(stampImg, {
-        x: (s.x + offset.x) * MM,
-        y: H - (s.y + s.h + offset.y) * MM,
-        width: s.w * MM, height: s.h * MM,
-      });
     }
     page.pushOperators(popGraphicsState());
     if (onProgress) await onProgress(n + 1, recs.length);

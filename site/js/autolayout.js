@@ -11,7 +11,7 @@
 //
 // 글자 크기 규칙
 //   - 제목이 가장 크다(글 영역 너비의 약 11%, 긴 상장명이면 너비에 맞춰 줄임)
-//   - 본문은 위 정렬이고, 본문 시작(0.465)부터 날짜 바로 위까지를 채우는 가장 큰 크기(12~28pt).
+//   - 본문은 위 정렬이고, 본문 시작(0.465)부터 날짜 바로 위까지를 채우는 가장 큰 크기(12pt~, 한 줄 16자 이상이 되는 크기까지).
 //     글이 짧으면 커지고 많으면 작아진다. 15pt보다 작아지면 본문 시작을 조금 올려 다시 맞춘다
 //   - 본문 ≤ 이름 ≤ 수여자 ≤ 제목. 날짜는 본문의 95%, 소속은 본문 크기(길면 칸에 맞춰 줄임)
 //   - 다른 항목은 본문 크기에 비례하므로 본문이 커지면 함께 커진다(제목보다 커지지는 않음)
@@ -33,6 +33,7 @@ export const REF_PAGE = {
 };
 // 기본 테두리의 글 영역 위아래(용지 비율)
 const BASE_TOP = 0.1094, BASE_BOTTOM = 0.8906;
+const BASE_INSET = 32.5; // 기본 테두리의 글 영역 안쪽 거리(mm): 21 + 2.3 + 0.2 + 9
 const toContent = p => (p - BASE_TOP) / (BASE_BOTTOM - BASE_TOP);
 
 /** 글 너비를 em 단위로(글꼴이 아직 없으면 한글 1, 그 밖 0.55로 어림) */
@@ -93,9 +94,10 @@ export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
   const em = id => Math.max(st[id] ? st[id].maxEm : 0, 1);
   const Y = p => C.y + toContent(p) * C.h; // 용지 비율 → 지금 글 영역의 y(mm)
 
-  // 본문 너비: 용지의 2/3, 글 영역을 넘지 않게
-  const bw = Math.min(C.w, W * REF_PAGE.bodyWidth);
-  const bx = (W - bw) / 2;
+  // 본문 너비: 기본 글 영역에서 용지의 2/3(= 글 영역의 95.6%)이 되도록 글 영역 기준 비율로.
+  // 그래서 1단계에서 글 영역을 줄이면 상자도 가로로 함께 오므라든다.
+  const bw = C.w * (W * REF_PAGE.bodyWidth) / (W - 2 * BASE_INSET);
+  const bx = C.x + (C.w - bw) / 2;
 
   // --- 글자 크기(mm)
   const T = Math.min(C.w * 0.11, (C.w * 0.92) / (em('title') * 1.08), (Y(REF_PAGE.row) - Y(REF_PAGE.number)) * 0.42);
@@ -107,7 +109,8 @@ export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
   // (최대: 제목의 62%·28pt. 참고 상장에서 짧은 본문은 26pt 안팎까지 커진다)
   const dateC = Y(REF_PAGE.date);
   const bottomFor = s => dateC - s * 0.95 * 0.8 - s * 1.1; // 날짜 위쪽 끝 − 본문 글자 1.1배 간격
-  const hiB = Math.min(28 * PT, T * 0.62);
+  // 한 줄에 16자 이상(참고 상장 본문은 한 줄 16~18자). 좁은 글 영역에서 양쪽 정렬로 띄어쓰기가 크게 벌어지는 것을 막는다
+  const hiB = Math.min(28 * PT, T * 0.62, bw / 16);
   let bTop = Y(REF_PAGE.bodyTop);
   let B = bodySize(pars, bw, s => bottomFor(s) - bTop, lhBody, hiB, 12 * PT);
   if (B < 15 * PT) {
@@ -140,8 +143,8 @@ export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
 
   // --- 자리
   put('number', { x: bx, y: Math.max(C.y, centered(Y(REF_PAGE.number), Num * 1.6)), w: bw * 0.5, h: Num * 1.6 }, Num, 0.8);
-  const tW = clamp(em('title') * T * 1.08, W * REF_PAGE.titleWidth, C.w);
-  put('title', { x: (W - tW) / 2, y: centered(Y(REF_PAGE.title), T * 1.5), w: tW, h: T * 1.5 }, T, 0.7);
+  const tW = clamp(em('title') * T * 1.08, C.w * (W * REF_PAGE.titleWidth) / (W - 2 * BASE_INSET), C.w);
+  put('title', { x: C.x + (C.w - tW) / 2, y: centered(Y(REF_PAGE.title), T * 1.5), w: tW, h: T * 1.5 }, T, 0.7);
   const rowH = Math.max(A, N) * 1.55;
   const rowY = centered(Y(REF_PAGE.row), rowH);
   // 받는 사람 줄: 왼쪽 절반은 소속(부문), 오른쪽 절반은 이름. 가운데 2mm 띄움

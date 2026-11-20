@@ -95,6 +95,11 @@ export async function buildHwpx(opts) {
     const rec = computeRecord(doc, idx, store);
     const objs = [];
     let z = 0;
+    // 도장은 글씨 뒤로: 가장 아래(zOrder 0)에 '글 뒤로' 배치
+    if (rec.stamp && stampPng) {
+      const s = rec.stamp;
+      objs.push(picXml({ id: nextId(), z: z++, x: PX(s.x), y: PY(s.y), w: s.w * k, h: s.h * k, px: stampPx }));
+    }
     for (const res of rec.fields) {
       if (res.pending || !res.lines.length) continue;
       if (res.overflow) warnings.push({ index: idx, field: res.field.label });
@@ -117,10 +122,6 @@ export async function buildHwpx(opts) {
         id: nextId(), z: z++, x: PX(x), y: PY(y), w: w * k, h: h * k, vAlign,
         para: `<hp:p id="0" paraPrIDRef="${pId}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="${cId}"><hp:t>${text}</hp:t></hp:run></hp:p>`,
       }));
-    }
-    if (rec.stamp && stampPng) {
-      const s = rec.stamp;
-      objs.push(picXml({ id: nextId(), z: z++, x: PX(s.x), y: PY(s.y), w: s.w * k, h: s.h * k, px: stampPx }));
     }
     pages.push(objs);
   }
@@ -196,7 +197,7 @@ function rectXml({ id, z, x, y, w, h, vAlign, para }) {
 function picXml({ id, z, x, y, w, h, px }) {
   const W = hu(w), H = hu(h);
   const dw = Math.round((px?.w || 100) * 75), dh = Math.round((px?.h || 100) * 75);
-  return `<hp:pic textWrap="IN_FRONT_OF_TEXT" textFlow="BOTH_SIDES" reverse="0" id="${id}" zOrder="${z}" numberingType="PICTURE" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}">`
+  return `<hp:pic textWrap="BEHIND_TEXT" textFlow="BOTH_SIDES" reverse="0" id="${id}" zOrder="${z}" numberingType="PICTURE" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}">`
     + `<hp:offset x="0" y="0"/><hp:orgSz width="${W}" height="${H}"/><hp:curSz width="${W}" height="${H}"/><hp:flip horizontal="0" vertical="0"/>`
     + `<hp:rotationInfo angle="0" centerX="${Math.round(W / 2)}" centerY="${Math.round(H / 2)}" rotateimage="1"/>${MATRIX}`
     + `<hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${W}" y="0"/><hc:pt2 x="${W}" y="${H}"/><hc:pt3 x="0" y="${H}"/></hp:imgRect>`

@@ -12,18 +12,26 @@ export const BORDER_DEFAULT = {
   gap: 2.3,      // 굵은 선 → 가는 선 간격(mm)
   thin: 0.4,     // 가는 선 두께(mm)
   notch: 5.2,    // 모서리 오목한 반지름(mm)
-  ornament: 1,   // 모서리 덩굴 장식 크기 배율(0이면 없음)
+  ornOn: false,  // 모서리 장식 켜기(기본은 끔)
+  ornType: 'vine', // 장식 종류: vine 덩굴 · flower 꽃 · leaf 잎 · dot 점
+  ornament: 1,   // 장식 크기 배율
   color: '#d9a521',
   pad: 9,        // 가는 선 → 글 영역 안쪽 여백(mm)
 };
 
 export const BORDER_LIMITS = {
   inset: [8, 40, 0.5], thick: [0.2, 4, 0.1], gap: [0.5, 8, 0.1], thin: [0, 2, 0.05],
-  notch: [0, 15, 0.2], ornament: [0, 2, 0.05], pad: [2, 30, 0.5],
+  notch: [0, 15, 0.2], ornament: [0.3, 2, 0.05], pad: [2, 30, 0.5],
 };
+
+export const ORNAMENT_TYPES = [
+  { id: 'vine', name: '덩굴' }, { id: 'flower', name: '꽃' }, { id: 'leaf', name: '잎' }, { id: 'dot', name: '점' },
+];
 
 export function normBorder(b) {
   const o = { ...BORDER_DEFAULT, ...(b || {}) };
+  o.ornOn = !!o.ornOn;
+  if (!ORNAMENT_TYPES.some(t => t.id === o.ornType)) o.ornType = BORDER_DEFAULT.ornType;
   for (const [k, [lo, hi]] of Object.entries(BORDER_LIMITS)) {
     const v = Number(o[k]);
     o[k] = Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : BORDER_DEFAULT[k];
@@ -61,6 +69,46 @@ function ornamentPath(r, s) {
   return `${A} ${B}`;
 }
 
+// 원을 베지어 4개로(좌표 쌍만 쓰므로 뒤집기·옮기기가 쉽다)
+function circleD(cx, cy, r) {
+  const k = 0.5523 * r;
+  return `M${n2(cx + r)} ${n2(cy)} C${n2(cx + r)} ${n2(cy + k)} ${n2(cx + k)} ${n2(cy + r)} ${n2(cx)} ${n2(cy + r)} `
+    + `C${n2(cx - k)} ${n2(cy + r)} ${n2(cx - r)} ${n2(cy + k)} ${n2(cx - r)} ${n2(cy)} `
+    + `C${n2(cx - r)} ${n2(cy - k)} ${n2(cx - k)} ${n2(cy - r)} ${n2(cx)} ${n2(cy - r)} `
+    + `C${n2(cx + k)} ${n2(cy - r)} ${n2(cx + r)} ${n2(cy - k)} ${n2(cx + r)} ${n2(cy)} Z`;
+}
+// 가운데(cx,cy)에서 각도 a 쪽으로 뻗은 꽃잎(물방울 모양)
+function petalD(cx, cy, a, len, wid) {
+  const ux = Math.cos(a), uy = Math.sin(a), px = -uy, py = ux;
+  const tx = cx + ux * len, ty = cy + uy * len;
+  const c1x = cx + ux * len * 0.35 + px * wid, c1y = cy + uy * len * 0.35 + py * wid;
+  const c2x = cx + ux * len * 0.85 + px * wid * 0.6, c2y = cy + uy * len * 0.85 + py * wid * 0.6;
+  const c3x = cx + ux * len * 0.85 - px * wid * 0.6, c3y = cy + uy * len * 0.85 - py * wid * 0.6;
+  const c4x = cx + ux * len * 0.35 - px * wid, c4y = cy + uy * len * 0.35 - py * wid;
+  return `M${n2(cx)} ${n2(cy)} C${n2(c1x)} ${n2(c1y)} ${n2(c2x)} ${n2(c2y)} ${n2(tx)} ${n2(ty)} C${n2(c3x)} ${n2(c3y)} ${n2(c4x)} ${n2(c4y)} ${n2(cx)} ${n2(cy)} Z`;
+}
+
+/** 장식 도형(왼쪽 위 모서리 기준, 바깥이 -x,-y). 선은 stroke, 면은 fill 로 */
+function ornamentShapes(type, notch, s) {
+  const D = Math.PI / 180;
+  if (type === 'vine') return { stroke: ornamentPath(notch, s), fill: circleD(-0.9 * s, -0.9 * s, 0.6 * s) };
+  // 오목한 모서리(꼭짓점을 중심으로 반지름 notch 만큼 비어 있음) 안쪽에 앉힌다
+  const k = Math.max(0.6, notch * 0.22);
+  if (type === 'dot') return { stroke: '', fill: circleD(k, k, 1.1 * s) };
+  if (type === 'flower') {
+    // 모서리 바깥쪽을 향한 네 잎 꽃
+    const c = k;
+    const petals = [45, 135, 225, 315].map(a => petalD(c, c, a * D, 2.4 * s, 0.95 * s)).join(' ');
+    return { stroke: '', fill: `${petals} ${circleD(c, c, 0.55 * s)}` };
+  }
+  if (type === 'leaf') {
+    // 모서리에서 바깥으로 부채꼴로 퍼지는 잎 세 장
+    const b = Math.max(1.2, notch * 0.55);
+    return { stroke: '', fill: [225, 192, 258].map((a, i) => petalD(b, b, a * D, (i ? 3.0 : 4.0) * s, (i ? 0.75 : 0.95) * s)).join(' ') };
+  }
+  return { stroke: '', fill: '' };
+}
+
 function transformPath(d, tx, ty, sx, sy) {
   // 절대 좌표(M/C/A 끝점) 쌍을 옮기고 뒤집는다. A 명령은 쓰지 않는 경로에만 사용.
   return d.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, (m, x, y) => `${n2(tx + sx * Number(x))} ${n2(ty + sy * Number(y))}`);
@@ -86,14 +134,12 @@ export function borderShapes(b, paper = PAPER) {
   if (B.thin > 0) {
     out.push({ d: concavePath(paper, m, m + B.gap, B.notch + B.gap), stroke: shade(B.color, 0.12), width: B.thin, fill: null });
   }
-  if (B.ornament > 0) {
+  if (B.ornOn) {
     const s = B.ornament;
-    const base = ornamentPath(B.notch, s);
+    const orn = ornamentShapes(B.ornType, B.notch, s);
     for (const [x, y, sx, sy] of [[m, m, 1, 1], [w - m, m, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]]) {
-      out.push({ d: transformPath(base, x, y, sx, sy), stroke: B.color, width: 0.65 * Math.max(0.6, s), fill: null, cap: 'round', main: true });
-      const r = 0.6 * s;
-      const cx = x - sx * 0.9 * s, cy = y - sy * 0.9 * s;
-      out.push({ d: `M${n2(cx - r)} ${n2(cy)} A${n2(r)} ${n2(r)} 0 1 0 ${n2(cx + r)} ${n2(cy)} A${n2(r)} ${n2(r)} 0 1 0 ${n2(cx - r)} ${n2(cy)} Z`, stroke: null, width: 0, fill: B.color });
+      if (orn.stroke) out.push({ d: transformPath(orn.stroke, x, y, sx, sy), stroke: B.color, width: 0.65 * Math.max(0.6, s), fill: null, cap: 'round', main: true });
+      if (orn.fill) out.push({ d: transformPath(orn.fill, x, y, sx, sy), stroke: null, width: 0, fill: B.color });
     }
   }
   return out;

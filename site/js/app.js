@@ -1,6 +1,6 @@
 // 쎈스 어워드 — 화면과 상태
 import { FONTS, FontStore, DEFAULT_FONT, FALLBACK_FONT, fontInfo, variantKey } from './fonts.js';
-import { PAPER, SAMPLE, FIELD_DEFS, defaultFields, BORDER_DEFAULT, BORDER_LIMITS, normBorder, borderSvg, contentRect } from './papers.js';
+import { PAPER, SAMPLE, FIELD_DEFS, defaultFields, BORDER_DEFAULT, BORDER_LIMITS, ORNAMENT_TYPES, normBorder, borderSvg, contentRect } from './papers.js';
 import { applyAutoLayout, layoutForRecord } from './autolayout.js';
 import { tableFromPaste, usedKeys, fillTemplate, BUILTIN_VARS } from './data.js';
 import { computeRecord, fontKeysFor, textLayerSvg } from './render.js';
@@ -236,9 +236,10 @@ function svgDataUrl(svg) { return 'data:image/svg+xml;charset=utf-8,' + encodeUR
 
 // 1단계: 시판 용지 테두리 설정. 미리보기에는 지금 명단 첫 장을 자동 배치로 함께 보여 준다.
 const BORDER_KEYS = ['inset', 'thick', 'gap', 'thin', 'notch', 'ornament', 'pad'];
+const ALL_BORDER_KEYS = [...BORDER_KEYS, 'color', 'ornOn', 'ornType'];
 
 function renderBorderPage(syncInputs) {
-  const B = state.border;
+  const B = normBorder(state.border);
   if (syncInputs) {
     for (const k of BORDER_KEYS) {
       const [lo, hi, step] = BORDER_LIMITS[k];
@@ -246,9 +247,20 @@ function renderBorderPage(syncInputs) {
     }
     $('#b-color').value = B.color;
   }
-  const changed = BORDER_KEYS.filter(k => B[k] !== BORDER_DEFAULT[k]).length + (B.color !== BORDER_DEFAULT.color ? 1 : 0);
-  $('#borderNote').textContent = changed ? `기본값에서 ${changed}가지를 바꿨어요` : '시판 기본값이에요';
-  $$('.bctl').forEach(el => el.classList.toggle('changed', BORDER_KEYS.includes(el.dataset.bkey) && B[el.dataset.bkey] !== BORDER_DEFAULT[el.dataset.bkey]));
+  $('#b-ornOn').checked = B.ornOn;
+  $('#ornOnLabel').textContent = B.ornOn ? '켜짐' : '꺼짐';
+  $('#ornBody').hidden = !B.ornOn;
+  $('#ornTypes').innerHTML = ORNAMENT_TYPES.map(t => `<button data-orn="${t.id}" class="${B.ornType === t.id ? 'on' : ''}">${t.name}</button>`).join('');
+  const isChanged = k => B[k] !== BORDER_DEFAULT[k];
+  const changed = ALL_BORDER_KEYS.filter(isChanged).length;
+  $('#borderNote').textContent = changed ? `견본에서 ${changed}가지를 바꿨어요` : '견본 디자인 그대로예요';
+  $('#borderReset').disabled = !changed;
+  $$('.bctl[data-bkey]').forEach(el => {
+    const ch = isChanged(el.dataset.bkey);
+    el.classList.toggle('changed', ch);
+    const rb = $('.reset-one', el);
+    if (rb) rb.hidden = !ch;
+  });
   drawBorderView();
 }
 
@@ -271,10 +283,26 @@ async function drawBorderView() {
   $('#borderView').innerHTML = svg.replace('<svg ', `<svg style="aspect-ratio:${w}/${h}" `);
 }
 
+// 글 영역이 바뀌면, 자동 배치가 아닌(직접 옮긴) 상자도 같은 비율로 따라 옮긴다
+function remapManualBoxes(oldC, newC) {
+  if (oldC.x === newC.x && oldC.y === newC.y && oldC.w === newC.w && oldC.h === newC.h) return;
+  const sx = newC.w / oldC.w, sy = newC.h / oldC.h;
+  const rd = v => Math.round(v * 100) / 100;
+  for (const f of state.fields) {
+    if (!f.manual) continue;
+    f.x = rd(newC.x + (f.x - oldC.x) * sx);
+    f.y = rd(newC.y + (f.y - oldC.y) * sy);
+    f.w = rd(Math.max(5, f.w * sx));
+    f.h = rd(Math.max(3, f.h * sy));
+  }
+}
+
 function setBorder(key, value) {
-  const v = key === 'color' ? value : parseFloat(value);
-  if (key !== 'color' && !Number.isFinite(v)) return;
+  const v = (key === 'color' || key === 'ornType') ? value : key === 'ornOn' ? !!value : parseFloat(value);
+  if (typeof v === 'number' && !Number.isFinite(v)) return;
+  const oldC = contentRect(state.border);
   state.border = normBorder({ ...state.border, [key]: v });
+  remapManualBoxes(oldC, contentRect(state.border));
   renderBorderPage(false);
   $$(`[data-b="${key}"]`).forEach(el => { if (el !== document.activeElement) el.value = state.border[key]; });
   save();
@@ -614,9 +642,18 @@ async function renderPreview() {
       const s = rec.stamp;
       boxes += `<circle class="stamp-ph" cx="${s.x + s.w / 2}" cy="${s.y + s.h / 2}" r="${s.w / 2}"/>`;
     }
+    // 도장: 3단계에서 끌어 옮기고 모서리로 크기 조절(수여자 끝 글자 기준 상대 위치로 기억)
+    if (state.step === 3 && rec.stamp && state.stamp.png) {
+      const s = rec.stamp;
+      boxes += `<g class="box stamp-box drag ${stampSelected ? 'sel' : ''}" data-box="__stamp">
+        <rect class="area" x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="1"/>
+        <text class="tag" x="${s.x + 0.6}" y="${s.y - 0.9}">도장</text>
+        <rect class="handle" data-handle="__stamp" x="${s.x + s.w - 2.2}" y="${s.y + s.h - 2.2}" width="4.4" height="4.4" rx="0.8"/>
+      </g>`;
+    }
   }
   $('#sheet').innerHTML = `<svg id="page" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="aspect-ratio:${w}/${h}">
-    <rect width="${w}" height="${h}" fill="#fff"/>${bg}<g class="text-layer">${textLayerSvg(rec)}</g>${stamp}<g class="box-layer">${boxes}</g><g class="guide-layer">${guideSvg()}${marqueeSvg()}</g></svg>`;
+    <rect width="${w}" height="${h}" fill="#fff"/>${bg}${stamp}<g class="text-layer">${textLayerSvg(rec)}</g><g class="box-layer">${boxes}</g><g class="guide-layer">${guideSvg()}${marqueeSvg()}</g></svg>`;
   ribbonInfo();
   applyZoom();
   positionEditor();
@@ -844,6 +881,7 @@ function syncFieldInputs() { renderRibbon(); }
 
 let drag = null;
 let lastDownBox = null;
+let stampSelected = false;
 
 function marqueeSvg() {
   if (!drag || drag.mode !== 'marquee' || !drag.moved) return '';
@@ -868,10 +906,20 @@ $('#sheet').addEventListener('pointerdown', ev => {
   if (!box) {
     // 빈 곳을 끌면 상자 여러 개를 한 번에 고른다(Shift·Ctrl을 누르면 더하기)
     closeEditor();
+    stampSelected = false;
     drag = { mode: 'marquee', start: p, rect: { x: p.x, y: p.y, w: 0, h: 0 }, base: additive ? [...selIds()] : [], additive, moved: false };
     return;
   }
   const id = box.dataset.box;
+  if (id === '__stamp') {
+    const st = state.stamp;
+    stampSelected = true;
+    if (selIds().length) { state.sel = []; state.selected = null; renderRibbon(); }
+    drag = { mode: ev.target.closest('[data-handle]') ? 'stampSize' : 'stamp', start: p, orig: { dx: st.dx || 0, dy: st.dy || 0, size: st.size }, moved: false };
+    refresh();
+    return;
+  }
+  stampSelected = false;
   if (ev.target.closest('[data-handle]')) {
     // 크기 조절은 잡은 상자 하나만
     if (!(selIds().length === 1 && isSel(id))) setSelection([id], id);
@@ -907,6 +955,21 @@ $('#sheet').addEventListener('pointermove', ev => {
     const hits = state.fields.filter(f => f.x < r.x + r.w && f.x + f.w > r.x && f.y < r.y + r.h && f.y + f.h > r.y).map(f => f.id);
     state.sel = [...new Set([...drag.base, ...hits])];
     state.selected = state.sel.includes(state.selected) ? state.selected : (state.sel[state.sel.length - 1] || null);
+    refresh();
+    return;
+  }
+  if (drag.mode === 'stamp' || drag.mode === 'stampSize') {
+    const st = state.stamp;
+    const r2 = v => Math.round(v * 2) / 2;
+    if (drag.mode === 'stamp') {
+      if (ev.shiftKey) { if (Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0; }
+      st.dx = r2(drag.orig.dx + dx);
+      st.dy = r2(drag.orig.dy + dy);
+    } else {
+      // 크기: 오른쪽 아래 모서리를 끈 만큼(가로세로 중 큰 쪽)
+      st.size = Math.max(6, Math.min(60, r2(drag.orig.size + Math.max(dx, dy))));
+      st.manual = true;
+    }
     refresh();
     return;
   }
@@ -1208,7 +1271,19 @@ function bind() {
     const el = e.target.closest('[data-b]');
     if (el) setBorder(el.dataset.b, el.value);
   });
-  $('#borderReset').addEventListener('click', () => { state.border = { ...BORDER_DEFAULT }; renderBorderPage(true); save(); });
+  $('#borderReset').addEventListener('click', () => {
+    const oldC = contentRect(state.border);
+    state.border = { ...BORDER_DEFAULT };
+    remapManualBoxes(oldC, contentRect(state.border));
+    renderBorderPage(true); save();
+  });
+  $('.paper-side').addEventListener('click', e => {
+    const r = e.target.closest('[data-reset]');
+    if (r) { setBorder(r.dataset.reset, BORDER_DEFAULT[r.dataset.reset]); renderBorderPage(true); return; }
+    const o = e.target.closest('[data-orn]');
+    if (o) { setBorder('ornType', o.dataset.orn); }
+  });
+  $('#b-ornOn').addEventListener('change', e => setBorder('ornOn', e.target.checked));
   $('#offX').addEventListener('input', e => { state.offset.x = parseFloat(e.target.value) || 0; renderPrintNote(); save(); });
   $('#offY').addEventListener('input', e => { state.offset.y = parseFloat(e.target.value) || 0; renderPrintNote(); save(); });
   $('#measured').addEventListener('input', e => { const v = parseFloat(e.target.value); state.measured = Number.isFinite(v) ? v : 100; renderPrintNote(); save(); });
