@@ -1,6 +1,6 @@
 // 쎈스 어워드 — 화면과 상태
 import { FONTS, FontStore, DEFAULT_FONT, FALLBACK_FONT, fontInfo, variantKey } from './fonts.js';
-import { PAPER, SAMPLE, FIELD_DEFS, defaultFields, BORDER_DEFAULT, BORDER_LIMITS, ORNAMENT_TYPES, normBorder, borderSvg, contentRect } from './papers.js';
+import { PAPER, SAMPLE, FIELD_DEFS, defaultFields, BORDER_DEFAULT, BORDER_LIMITS, ORNAMENT_TYPES, normBorder, borderSvg, borderShapes, contentRect } from './papers.js';
 import { applyAutoLayout, layoutForRecord } from './autolayout.js';
 import { tableFromPaste, usedKeys, fillTemplate, BUILTIN_VARS } from './data.js';
 import { computeRecord, fontKeysFor, textLayerSvg } from './render.js';
@@ -19,7 +19,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
 const STORE_KEY = 'sense-award:state:v3'; // 프로젝트 기능 전의 저장 자리(한 번 옮겨 담는다)
 const INDEX_KEY = 'sense-award:projects';
 const PKEY = id => `sense-award:project:${id}`;
-const LAYOUT_VERSION = 4;
+const LAYOUT_VERSION = 5;
 
 // ---------- 상태 ----------
 function freshState() {
@@ -1384,6 +1384,85 @@ async function exportPdf() {
   } finally { busy = false; }
 }
 
+// ---------- 바로 인쇄 ----------
+// 미리보기와 같은 글자 윤곽(SVG 경로)을 A4 실제 크기 페이지로 펼쳐 브라우저 인쇄로 보낸다.
+// 배율 보정은 용지 가운데 기준, 위치 보정은 그 안에서 옮긴다(PDF와 같은 순서).
+function printTransform() {
+  const { w, h } = paperSize();
+  const k = printScale();
+  return `translate(${w / 2} ${h / 2}) scale(${k}) translate(${-w / 2} ${-h / 2}) translate(${state.offset.x || 0} ${state.offset.y || 0})`;
+}
+
+function printPageSvg(inner) {
+  const { w, h } = paperSize();
+  return `<div class="print-page"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm"><g transform="${printTransform()}">${inner}</g></svg></div>`;
+}
+
+async function sendToPrinter(pagesHtml, label) {
+  let area = $('#printArea');
+  if (!area) { area = document.createElement('div'); area.id = 'printArea'; document.body.appendChild(area); }
+  area.innerHTML = pagesHtml;
+  // 도장 이미지가 다 그려진 뒤에 인쇄 창을 연다
+  await Promise.all([...area.querySelectorAll('image')].map(im => new Promise(res => { const i = new Image(); i.onload = i.onerror = res; i.src = im.getAttribute('href'); })));
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const done = () => { area.innerHTML = ''; window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  progress(1, 1, label);
+  window.print();
+}
+
+async function printNow() {
+  if (busy || !state.rows.length) return;
+  busy = true;
+  try {
+    await ensureFonts(true);
+    applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
+    const indices = allIndices();
+    const { w, h } = paperSize();
+    const bg = state.bgInPdf ? borderSvg(normBorder(state.border), { bg: false }).replace('<svg ', `<svg width="${w}" height="${h}" `) : '';
+    let html = '';
+    for (const i of indices) {
+      const rec = computeRecord(docView(), i, store);
+      let stamp = '';
+      if (rec.stamp && state.stamp.png) {
+        const st = rec.stamp;
+        stamp = `<image href="${state.stamp.png}" x="${st.x}" y="${st.y}" width="${st.w}" height="${st.h}" preserveAspectRatio="none"/>`;
+      }
+      html += printPageSvg(bg + stamp + textLayerSvg(rec));
+    }
+    await sendToPrinter(html, `${indices.length}장을 인쇄 창으로 보냈어요. 배율은 기본값(100%), 여백은 없음으로 인쇄하세요.`);
+  } catch (e) {
+    console.error(e);
+    progress(0, 1, `인쇄하지 못했어요: ${e.message}`);
+  } finally { busy = false; }
+}
+
+// 시험 인쇄(바로): 100mm 자 가로·세로, 글 영역 모서리 십자, 테두리 윤곽
+async function testPrintNow() {
+  const { w, h } = paperSize();
+  const B = normBorder(state.border), C = contentRect(B);
+  const line = (x1, y1, x2, y2, sw = 0.25, c = '#000') => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${sw}"/>`;
+  const txt = (x, y, t, size = 3.2, anchor = 'start') => `<text x="${x}" y="${y}" font-size="${size}" font-family="sans-serif" text-anchor="${anchor}" fill="#000">${esc(t)}</text>`;
+  let g = '';
+  // 테두리 윤곽(회색)
+  g += borderShapes(B).filter(s => !s.fill).map(s => `<path d="${s.d}" fill="none" stroke="#999" stroke-width="0.2"/>`).join('');
+  // 가로 100mm 자
+  const x0 = (w - 100) / 2, yR = h * 0.42;
+  g += line(x0, yR, x0 + 100, yR, 0.3);
+  for (let i = 0; i <= 100; i++) g += line(x0 + i, yR, x0 + i, yR - (i % 10 === 0 ? 4 : i % 5 === 0 ? 2.5 : 1.5), 0.15);
+  g += txt(w / 2, yR + 6, '가로 100mm — 자로 재어 "100mm 선 실측"에 넣으세요', 3.4, 'middle');
+  // 세로 100mm 자
+  const xV = w * 0.3, y0 = h * 0.5;
+  g += line(xV, y0, xV, y0 + 100, 0.3);
+  for (let i = 0; i <= 100; i++) g += line(xV, y0 + i, xV + (i % 10 === 0 ? 4 : i % 5 === 0 ? 2.5 : 1.5), y0 + i, 0.15);
+  g += txt(xV + 6, y0 + 50, '세로 100mm', 3.4);
+  // 글 영역 모서리 십자
+  for (const [cx, cy] of [[C.x, C.y], [C.x + C.w, C.y], [C.x, C.y + C.h], [C.x + C.w, C.y + C.h]]) g += line(cx - 4, cy, cx + 4, cy, 0.25) + line(cx, cy - 4, cx, cy + 4, 0.25);
+  g += txt(w / 2, h * 0.3, '쎈스 어워드 맞춤 확인(바로 인쇄)', 5, 'middle');
+  g += txt(w / 2, h * 0.3 + 7, '빈 종이에 인쇄해 상장 용지와 겹쳐 보세요. 십자는 글 영역의 네 모서리예요.', 3.2, 'middle');
+  await sendToPrinter(printPageSvg(g), '시험 인쇄를 인쇄 창으로 보냈어요. 배율 기본값(100%), 여백 없음으로 인쇄하세요.');
+}
+
 let templateCache = null;
 async function loadTemplate() {
   if (templateCache) return templateCache;
@@ -1474,6 +1553,9 @@ function bind() {
   $('#offY').addEventListener('input', e => { state.offset.y = parseFloat(e.target.value) || 0; renderPrintNote(); save(); });
   $('#measured').addEventListener('input', e => { const v = parseFloat(e.target.value); state.measured = Number.isFinite(v) ? v : 100; renderPrintNote(); save(); });
   $('#testPageBtn').addEventListener('click', exportTestPage);
+  $('#testPrintBtn').addEventListener('click', testPrintNow);
+  $('#printBtn').addEventListener('click', printNow);
+  $('#tabHome').addEventListener('click', goHome);
 
   // 되돌리기
   $('#undoBtn').addEventListener('click', undo);

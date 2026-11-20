@@ -81,8 +81,15 @@ export class Sheet {
     h += rows.map((row, ri) => `<tr><th class="xl-rowh" data-row="${ri}">${ri + 1}</th>${cols.map((_, ci) => `<td class="xl-cell" data-r="${ri}" data-c="${ci}">${disp(row[ci])}</td>`).join('')}</tr>`).join('');
     h += `<tr class="xl-ghost"><th class="xl-rowh" data-row="${rows.length}" title="여기에 입력하거나 붙여 넣으면 줄이 늘어나요">+</th>${cols.map((_, ci) => `<td class="xl-cell" data-r="${rows.length}" data-c="${ci}"></td>`).join('')}</tr></tbody>`;
     this.table.innerHTML = h;
+    this.fitTableWidth();
     this.clampSel();
     this.paintSel(false);
+  }
+
+  // table-layout: fixed 는 표 너비가 정해져 있어야 먹는다(auto면 글 길이보다 좁아지지 않음) → 열 너비 합으로 고정
+  fitTableWidth() {
+    const total = [...this.table.querySelectorAll('col')].reduce((a, c) => a + (parseFloat(c.style.width) || 0), 0);
+    this.table.style.width = `${total}px`;
   }
 
   autoWidth(ci) {
@@ -495,6 +502,9 @@ export class Sheet {
       this.dragSel = null;
     });
     this.table.addEventListener('dblclick', ev => {
+      // 열 경계 두 번 누르기: 내용에 맞춰 너비 되돌리기(엑셀처럼)
+      const rz = ev.target.closest('[data-resize]');
+      if (rz) { delete this.host.widths()[this.cols[Number(rz.dataset.resize)]]; this.render(); this.host.changed('widths'); return; }
       const td = ev.target.closest('td.xl-cell');
       if (!td) return;
       this.a = { r: Number(td.dataset.r), c: Number(td.dataset.c) }; this.f = { ...this.a };
@@ -644,7 +654,7 @@ export class Sheet {
     const w0 = col.getBoundingClientRect().width || parseFloat(col.style.width);
     const x0 = ev.clientX;
     const name = this.cols[c];
-    const mv = e => { col.style.width = `${Math.max(60, Math.round(w0 + e.clientX - x0))}px`; this.paintSel(false); };
+    const mv = e => { col.style.width = `${Math.max(36, Math.round(w0 + e.clientX - x0))}px`; this.fitTableWidth(); this.paintSel(false); };
     const up = () => {
       window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up);
       this.host.widths()[name] = parseFloat(col.style.width);

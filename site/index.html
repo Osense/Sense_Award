@@ -21,6 +21,8 @@
     </button>
   </div>
   <nav class="step-tabs" id="stepTabs" aria-label="작업 단계">
+    <button class="tab-home" id="tabHome" title="처음 화면(프로젝트 목록)으로"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>프로젝트</button>
+    <span class="tab-sep" aria-hidden="true"></span>
     <button data-step="1"><span class="n">1</span>용지</button>
     <button data-step="2"><span class="n">2</span>명단</button>
     <button data-step="3"><span class="n">3</span>문구·배치</button>
@@ -294,6 +296,7 @@
             <button data-range="current">보고 있는 장만</button>
           </div>
           <div class="export-buttons">
+            <button class="primary big" id="printBtn" title="이 화면에서 바로 인쇄(보정값 그대로 적용)">바로 인쇄</button>
             <button class="primary big" id="pdfBtn">PDF 내려받기</button>
             <button class="primary big alt" id="hwpxBtn">한글(HWPX) 내려받기</button>
           </div>
@@ -304,7 +307,20 @@
           <h3>인쇄 맞추기</h3>
           <p class="hint">PDF는 A4 실제 크기로 만들어지고, 인쇄 창이 <b>실제 크기(100%)</b>로 열리도록 설정돼 있어요. 인쇄 창에서 "용지에 맞춤"이나 "축소"를 고르면 상장 용지 칸과 어긋나니 꼭 <b>실제 크기</b>로 인쇄하세요.</p>
           <p class="hint safe" id="printSafe"></p>
-          <button class="small" id="testPageBtn">맞춤 확인용 시험 인쇄 PDF</button>
+          <div class="print-how">
+            <b>바로 인쇄할 때 인쇄 창 설정</b>
+            <ol>
+              <li>대상: 쓸 프린터 (PDF로 저장 말고)</li>
+              <li>용지 크기: A4 · 방향: 세로</li>
+              <li>배율: <b>기본값</b> 또는 <b>100%</b> (맞춤·축소 금지)</li>
+              <li>여백: <b>없음</b> · 머리글과 바닥글: <b>끄기</b> · 배경 그래픽: 켜기(도장·테두리용)</li>
+            </ol>
+            <p class="hint">브라우저가 용지 크기와 여백 0을 미리 알려 주므로 보통 그대로 두면 돼요. 시험 인쇄도 같은 방식(바로 인쇄)으로 해야 보정값이 정확해요.</p>
+          </div>
+          <div class="test-buttons">
+            <button class="small primary" id="testPrintBtn">시험 인쇄 바로 하기</button>
+            <button class="small" id="testPageBtn">시험 인쇄 PDF</button>
+          </div>
           <p class="hint">빈 종이에 시험 인쇄해 상장 용지와 겹쳐 보고, 어긋나면 아래 값을 넣어요.</p>
           <div class="row three">
             <label class="lbl" title="시험 인쇄의 100mm 선을 재 보니 몇 mm였나요?">100mm 선 실측(mm)<input type="number" id="measured" step="0.1" min="80" max="120"></label>
