@@ -1,7 +1,7 @@
 // 쎈스 어워드 — 화면과 상태
 import { FONTS, FontStore, DEFAULT_FONT, FALLBACK_FONT, fontInfo, variantKey } from './fonts.js';
 import { PAPER, SAMPLE, FIELD_DEFS, defaultFields, BORDER_DEFAULT, BORDER_LIMITS, normBorder, borderSvg, contentRect } from './papers.js';
-import { applyAutoLayout } from './autolayout.js';
+import { applyAutoLayout, layoutForRecord } from './autolayout.js';
 import { tableFromPaste, usedKeys, fillTemplate, BUILTIN_VARS } from './data.js';
 import { computeRecord, fontKeysFor, textLayerSvg } from './render.js';
 import { buildPdf, buildTestPage } from './export-pdf.js';
@@ -16,7 +16,7 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
 const STORE_KEY = 'sense-award:state:v3';
-const LAYOUT_VERSION = 2;
+const LAYOUT_VERSION = 3;
 
 // ---------- 상태 ----------
 function freshState() {
@@ -52,7 +52,7 @@ function load() {
       const defs = Object.fromEntries(FIELD_DEFS.map(d => [d.id, d]));
       st.fields = st.fields.map(f => {
         const d = defs[f.id] || {};
-        return { ...f, manual: false, align: d.align ?? f.align, spacing: d.spacing ?? 0, lineHeight: d.lineHeight ?? f.lineHeight };
+        return { ...f, manual: false, align: d.align ?? f.align, valign: d.valign ?? 'middle', spacing: d.spacing ?? 0, lineHeight: d.lineHeight ?? f.lineHeight };
       });
       st.stamp = { ...st.stamp, manual: false };
       st.layoutVersion = LAYOUT_VERSION;
@@ -74,7 +74,12 @@ function save() {
 }
 
 const paperSize = () => PAPER;
-const docView = () => ({ fields: state.fields, columns: state.columns, rows: state.rows, stamp: state.stamp, overrides: state.overrides });
+const docView = () => {
+  const d = { fields: state.fields, columns: state.columns, rows: state.rows, stamp: state.stamp, overrides: state.overrides };
+  // 장마다 그 장의 글 길이로 자동 배치(짧은 본문은 커지고 긴 본문은 작아짐)
+  d.layoutFor = i => layoutForRecord(d, store, state.border, i);
+  return d;
+};
 const bgHref = () => svgDataUrl(borderSvg(state.border));
 
 // 직접 고친 내용은 명단 줄과 같은 순서로 따라다닌다
@@ -253,7 +258,7 @@ async function drawBorderView() {
   let text = '';
   try {
     await ensureFonts();
-    applyAutoLayout(docView(), store, state.border);
+    applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
     text = `<g opacity=".88">${textLayerSvg(computeRecord(docView(), Math.min(state.current, Math.max(0, state.rows.length - 1)), store))}</g>`;
   } catch {}
   // 치수 안내: 가장자리 → 굵은 선, 가는 선 → 글 영역
@@ -569,7 +574,7 @@ async function renderPreview() {
   syncOverrides();
   try { await ensureFonts(); } catch (e) { setStatus('글꼴을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'); return; }
   if (seq !== renderSeq) return;
-  applyAutoLayout(docView(), store, state.border);
+  applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
   let rec = computeRecord(docView(), state.current, store);
   if (rec.needFallback) {
     await store.load(variantKey(FALLBACK_FONT, false));
@@ -1127,7 +1132,7 @@ async function exportPdf() {
   busy = true;
   try {
     await ensureFonts(true);
-    applyAutoLayout(docView(), store, state.border);
+    applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
     const indices = allIndices();
     progress(0, indices.length, '준비 중…');
     const res = await buildPdf({
@@ -1164,7 +1169,7 @@ async function exportHwpx() {
   busy = true;
   try {
     await ensureFonts(true);
-    applyAutoLayout(docView(), store, state.border);
+    applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
     const indices = allIndices();
     progress(0, 1, '한글 파일 만드는 중…');
     const res = await buildHwpx({

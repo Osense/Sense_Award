@@ -131,7 +131,7 @@ export const FIELD_DEFS = [
   { id: 'affiliation', label: '소속', text: '{{소속}}', align: 'left' },
   // 이름은 참고 상장처럼 자간을 벌려(박 연 우) 오른쪽 끝에 맞춘다
   { id: 'name', label: '이름', text: '{{이름}}', align: 'right', spacing: 25 },
-  { id: 'body', label: '내용', text: '{{내용}}', align: 'justify', valign: 'middle', lineHeight: 170, maxLines: 0 },
+  { id: 'body', label: '내용', text: '{{내용}}', align: 'justify', valign: 'top', lineHeight: 170, maxLines: 0 },
   { id: 'date', label: '날짜', text: '{{날짜}}', align: 'center' },
   { id: 'presenter', label: '수여자', text: '{{수여자}}', align: 'center' },
 ];

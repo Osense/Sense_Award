@@ -11,9 +11,10 @@
 //
 // 글자 크기 규칙
 //   - 제목이 가장 크다(글 영역 너비의 약 11%, 긴 상장명이면 너비에 맞춰 줄임)
-//   - 본문은 가장 긴 내용이 본문 칸에 다 들어가는 가장 큰 크기(12~22pt).
-//     글이 많아 16pt보다 작아지면 본문 칸을 위아래로 넓힌 뒤 다시 맞춘다
+//   - 본문은 위 정렬이고, 본문 시작(0.465)부터 날짜 바로 위까지를 채우는 가장 큰 크기(12~28pt).
+//     글이 짧으면 커지고 많으면 작아진다. 15pt보다 작아지면 본문 시작을 조금 올려 다시 맞춘다
 //   - 본문 ≤ 이름 ≤ 수여자 ≤ 제목. 날짜는 본문의 95%, 소속은 본문 크기(길면 칸에 맞춰 줄임)
+//   - 다른 항목은 본문 크기에 비례하므로 본문이 커지면 함께 커진다(제목보다 커지지는 않음)
 // 사용자가 직접 옮기거나 크기를 바꾼 칸(manual)은 건드리지 않는다.
 import { contentRect, PAPER } from './papers.js';
 import { fillTemplate } from './data.js';
@@ -46,14 +47,15 @@ function emWidth(text, font) {
 }
 
 /** 명단 전체에서 칸별로 가장 긴 글의 길이(em)와 문단 목록 */
-function textStats(doc, store) {
+function textStats(doc, store, only) {
   const stats = {};
   const n = Math.max(1, doc.rows.length);
+  const list = Number.isInteger(only) ? [only] : [...Array(n).keys()];
   for (const f of doc.fields) {
     const font = store ? store.get(variantKey(f.font, f.bold)) : null;
     let maxEm = 0;
     let maxPars = [0];
-    for (let i = 0; i < n; i++) {
+    for (const i of list) {
       const ov = doc.overrides && doc.overrides[i] ? doc.overrides[i][f.id] : undefined;
       const text = typeof ov === 'string' ? ov : fillTemplate(f.text, doc.columns, doc.rows[i] || [], i).text;
       const pars = text.split(/\r?\n/);
@@ -65,25 +67,29 @@ function textStats(doc, store) {
   return stats;
 }
 
-/** 본문: 가장 긴 내용이 칸에 들어가는 가장 큰 글자(mm) */
+/**
+ * 본문: 가장 긴 내용이 칸에 들어가는 가장 큰 글자(mm).
+ * boxH(s) 는 글자 크기에 따라 달라지는 칸 높이(날짜와 띄울 간격이 글자 크기에 비례).
+ */
 function bodySize(pars, boxW, boxH, lineHeight, hiMm, loMm) {
   const lh = lineHeight / 100;
   for (let s = hiMm; s >= loMm; s -= PT / 2) {
     // 어절 단위 줄 나눔으로 줄 끝이 비는 것을 감안해 7% 여유
     const lines = pars.reduce((a, em) => a + Math.max(1, Math.ceil((em * s * 1.07) / boxW)), 0);
     const h = (lines - 1) * s * lh + s;
-    if (h <= boxH) return s;
+    if (h <= boxH(s)) return s;
   }
   return loMm;
 }
 
 /**
- * 자동 배치 계산. 반환: { fields: {id: {x,y,w,h,size,minSize}}, stamp: {size}, sizes }
+ * 자동 배치 계산. index 를 주면 그 상장 한 장의 글 길이로 계산한다(장마다 본문이 길이에 맞게 커지고 작아짐).
+ * 반환: { fields: {id: {x,y,w,h,size,minSize}}, stamp: {size}, sizes }
  */
-export function computeAutoLayout(doc, store, border, paper = PAPER) {
+export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
   const C = contentRect(border, paper);
   const W = paper.w;
-  const st = textStats(doc, store);
+  const st = textStats(doc, store, index);
   const em = id => Math.max(st[id] ? st[id].maxEm : 0, 1);
   const Y = p => C.y + toContent(p) * C.h; // 용지 비율 → 지금 글 영역의 y(mm)
 
@@ -96,19 +102,27 @@ export function computeAutoLayout(doc, store, border, paper = PAPER) {
   const bodyF = doc.fields.find(f => f.id === 'body');
   const lhBody = bodyF ? bodyF.lineHeight : 170;
   const pars = st.body ? st.body.pars : [1];
-  let bTop = Y(REF_PAGE.bodyTop), bBot = Y(REF_PAGE.bodyBottom);
-  let B = bodySize(pars, bw, bBot - bTop, lhBody, Math.min(22 * PT, T * 0.55), 12 * PT);
-  if (B < 16 * PT) {
-    // 글이 많으면 본문 칸을 위아래로 넓힌다(받는 사람 줄·날짜와는 띄운 채로)
-    bTop = Y(0.44); bBot = Y(0.715);
-    B = bodySize(pars, bw, bBot - bTop, lhBody, Math.min(22 * PT, T * 0.55), 11 * PT);
+  // 본문은 위 정렬. 칸은 본문 시작(0.465)부터 날짜 바로 위까지 쓰고,
+  // 그 공간을 채우는 가장 큰 글자를 고른다 → 글이 짧으면 글자가 커져 아래가 휑하게 비지 않는다.
+  // (최대: 제목의 62%·28pt. 참고 상장에서 짧은 본문은 26pt 안팎까지 커진다)
+  const dateC = Y(REF_PAGE.date);
+  const bottomFor = s => dateC - s * 0.95 * 0.8 - s * 1.1; // 날짜 위쪽 끝 − 본문 글자 1.1배 간격
+  const hiB = Math.min(28 * PT, T * 0.62);
+  let bTop = Y(REF_PAGE.bodyTop);
+  let B = bodySize(pars, bw, s => bottomFor(s) - bTop, lhBody, hiB, 12 * PT);
+  if (B < 15 * PT) {
+    // 글이 아주 많으면 본문 시작을 받는 사람 줄 쪽으로 조금 올린다
+    bTop = Y(0.445);
+    B = bodySize(pars, bw, s => bottomFor(s) - bTop, lhBody, hiB, 11 * PT);
   }
   B = Math.min(B, T);
+  const bBot = bottomFor(B);
   // 수여자: 본문보다 조금 크게(참고 상장 평균 1.2배), 제목 이하, 한 줄에 들어가게
-  let P = clamp(B * 1.2, B, T);
+  // 본문이 커질 때 함께 커지되, 제목이 가장 돋보이도록 제목의 68%를 넘지 않게
+  let P = clamp(Math.min(B * 1.2, T * 0.68), B, T);
   P = clamp(Math.min(P, (C.w * 0.92) / (em('presenter') * 1.06)), B, T);
   // 이름: 본문 이상, 수여자 이하. 받는 사람 줄의 오른쪽 절반에 들어가게(자간을 벌리므로 1.3배로 잰다)
-  let N = clamp(B * 1.08, B, P);
+  let N = clamp(Math.min(B * 1.08, T * 0.62), B, P);
   N = clamp(Math.min(N, ((bw - 2) / 2) / (em('name') * 1.3)), B * 0.8, P);
   // 소속(받는 사람 줄 왼쪽): 본문 크기, 이름 이하
   const A = clamp(Math.min(B, ((bw - 2) / 2) / (em('affiliation') * 1.03)), B * 0.7, N);
@@ -147,9 +161,19 @@ export function computeAutoLayout(doc, store, border, paper = PAPER) {
   };
 }
 
-/** 직접 손대지 않은 칸에 자동 배치를 적용한다 */
-export function applyAutoLayout(doc, store, border, paper = PAPER) {
-  const res = computeAutoLayout(doc, store, border, paper);
+/**
+ * 한 장의 칸 목록: 직접 손대지 않은 칸은 그 장의 글 길이에 맞춘 자동 배치를 쓴다.
+ * 반환: { fields, stampSize }
+ */
+export function layoutForRecord(doc, store, border, index, paper = PAPER) {
+  const res = computeAutoLayout(doc, store, border, paper, index);
+  const fields = doc.fields.map(f => (f.manual || !res.fields[f.id]) ? f : { ...f, ...res.fields[f.id] });
+  return { fields, stampSize: doc.stamp && doc.stamp.manual ? doc.stamp.size : res.stamp.size };
+}
+
+/** 직접 손대지 않은 칸에 자동 배치를 적용한다(index: 기준이 될 장, 화면에 보이는 장) */
+export function applyAutoLayout(doc, store, border, paper = PAPER, index) {
+  const res = computeAutoLayout(doc, store, border, paper, index);
   let changed = false;
   for (const f of doc.fields) {
     if (f.manual) continue;

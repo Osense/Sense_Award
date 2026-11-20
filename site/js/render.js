@@ -19,7 +19,10 @@ export function computeRecord(doc, index, store) {
   const out = { fields: [], stamp: null, missing: [], needFallback: false, pending: false };
   const missing = new Set();
   const fallback = store.get(variantKey(FALLBACK_FONT, false));
-  for (const f of doc.fields) {
+  // 장마다 자동 배치가 다르면(본문 길이에 따라 글자 크기가 바뀜) 그 장의 칸 목록을 쓴다
+  const per = doc.layoutFor ? doc.layoutFor(index) : null;
+  const fieldList = per ? per.fields : doc.fields;
+  for (const f of fieldList) {
     // 이 상장만 직접 고친 글이 있으면 그것을 쓴다
     const ov = doc.overrides && doc.overrides[index] ? doc.overrides[index][f.id] : undefined;
     const edited = typeof ov === 'string';
@@ -35,7 +38,7 @@ export function computeRecord(doc, index, store) {
     out.fields.push({ field: f, text, edited, ...lay, font, fallback: fb, faux: needsFauxBold(f.font, f.bold) });
   }
   out.missing = [...missing];
-  out.stamp = stampPlacement(doc, out.fields);
+  out.stamp = stampPlacement(per ? { ...doc, stamp: { ...doc.stamp, size: per.stampSize }, fields: fieldList } : doc, out.fields);
   return out;
 }
 

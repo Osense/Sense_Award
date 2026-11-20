@@ -9,7 +9,7 @@ const fontkit = require(path.join(site, 'vendor/fontkit.umd.min.js'));
 const JSZip = require(path.join(site, 'vendor/jszip.min.js'));
 const { FontStore, FONTS, variantKey, FALLBACK_FONT } = await import(path.join(site, 'js/fonts.js'));
 const { defaultFields, SAMPLE, PAPER, BORDER_DEFAULT } = await import(path.join(site, 'js/papers.js'));
-const { applyAutoLayout } = await import(path.join(site, 'js/autolayout.js'));
+const { applyAutoLayout, layoutForRecord } = await import(path.join(site, 'js/autolayout.js'));
 const { computeRecord, fontKeysFor } = await import(path.join(site, 'js/render.js'));
 const { buildPdf, buildTestPage } = await import(path.join(site, 'js/export-pdf.js'));
 const { subsetFont } = await import(path.join(site, 'js/subset.js'));
@@ -30,6 +30,8 @@ const doc = {
 };
 for (const k of [...fontKeysFor(doc), variantKey(FALLBACK_FONT, false)]) await store.load(k);
 const auto = applyAutoLayout(doc, store, BORDER_DEFAULT);
+doc.layoutFor = i => layoutForRecord(doc, store, BORDER_DEFAULT, i);
+for (let i = 0; i < doc.rows.length; i++) { const L = layoutForRecord(doc, store, BORDER_DEFAULT, i); console.log(`#${i + 1} 본문`, L.fields.find(f => f.id === 'body').size, 'pt 수여자', L.fields.find(f => f.id === 'presenter').size, 'pt 이름', L.fields.find(f => f.id === 'name').size, 'pt'); }
 console.log('sizes', JSON.stringify(auto.res.sizes), 'stamp', doc.stamp.size);
 for (let i = 0; i < doc.rows.length; i++) {
   const r = computeRecord(doc, i, store);
