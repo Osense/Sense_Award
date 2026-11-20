@@ -3,6 +3,7 @@
 // 실제 상장·표창장 4종(회사 상장, 학교 상장, 문체부·지경부 표창장)을 재어 얻은
 // 요소별 세로 위치(용지 높이 비율, 요소 가운데 기준)의 대푯값:
 //   상장번호 0.16 · 제목 0.27 · 받는 사람 줄 0.385 · 본문 0.465~0.635 · 날짜 0.77 · 수여자 0.865
+// 받는 사람은 소속을 이름 위에 쌓고 둘 다 오른쪽 끝에 맞춘다(학교 상장의 '6학년 3반 / 김하늘' 꼴)
 // 받는 사람 줄(0.385)과 본문 끝(0.635)이 황금비 분할점(0.382 / 0.618) 부근에 놓인다.
 // 본문 너비는 용지의 약 2/3, 제목은 글자 수와 상관없이 용지 폭의 약 0.29를 차지한다.
 //
@@ -125,9 +126,9 @@ export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
   P = clamp(Math.min(P, (g0.C.w * 0.92) / (em('presenter') * 1.06)), B, T);
   // 이름: 본문 이상, 수여자 이하. 받는 사람 줄의 오른쪽 절반에 들어가게(자간을 벌리므로 1.3배로 잰다)
   let N = clamp(Math.min(B * 1.08, T * 0.62), B, P);
-  N = clamp(Math.min(N, ((g0.bw - 2) / 2) / (em('name') * 1.3)), B * 0.8, P);
-  // 소속(받는 사람 줄 왼쪽): 본문 크기, 이름 이하
-  const A = clamp(Math.min(B, ((g0.bw - 2) / 2) / (em('affiliation') * 1.03)), B * 0.7, N);
+  N = clamp(Math.min(N, (g0.bw * 0.62) / (em('name') * 1.3)), B * 0.8, P);
+  // 소속(이름 위): 본문보다 살짝 작게, 이름 이하, 한 줄에 들어가게
+  const A = clamp(Math.min(B * 0.92, (g0.bw * 0.62) / (em('affiliation') * 1.03)), B * 0.7, N);
   // 날짜: 본문보다 살짝 작게
   const D = clamp(B * 0.95, B * 0.85, P);
   const Num = clamp(B * 0.52, 9 * PT, 11 * PT);
@@ -148,12 +149,12 @@ export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
   put('number', { x: bx, y: Math.max(C.y, centered(Y(REF_PAGE.number), Num * 1.6)), w: bw * 0.5, h: Num * 1.6 }, Num, 0.8);
   const tW = clamp(em('title') * T * 1.08, C.w * (W * REF_PAGE.titleWidth) / (W - 2 * BASE_INSET), C.w);
   put('title', { x: C.x + (C.w - tW) / 2, y: centered(Y(REF_PAGE.title), T * 1.5), w: tW, h: T * 1.5 }, T, 0.7);
-  const rowH = Math.max(A, N) * 1.55;
-  const rowY = centered(Y(REF_PAGE.row), rowH);
-  // 받는 사람 줄: 왼쪽 절반은 소속(부문), 오른쪽 절반은 이름. 가운데 2mm 띄움
-  const half = (bw - 2) / 2;
-  put('affiliation', { x: bx, y: rowY, w: half, h: rowH }, A, 0.7);
-  put('name', { x: bx + half + 2, y: rowY, w: half, h: rowH }, N, 0.7);
+  // 받는 사람: 소속을 이름 바로 위에 두고 둘 다 본문 오른쪽 끝에 맞춘다. 이름이 받는 사람 줄(0.385)에 놓인다
+  const rw = bw * 0.62;
+  const nH = N * 1.55, aH = A * 1.5;
+  const nY = centered(Y(REF_PAGE.row), nH);
+  put('name', { x: bx + bw - rw, y: nY, w: rw, h: nH }, N, 0.7);
+  put('affiliation', { x: bx + bw - rw, y: nY - aH - A * 0.15, w: rw, h: aH }, A, 0.7);
   put('body', { x: bx, y: bTop, w: bw, h: bBot - bTop }, B, 0.8);
   put('date', { x: bx, y: centered(Y(REF_PAGE.date), D * 1.6), w: bw, h: D * 1.6 }, D, 0.75);
   const pH = P * 1.6;

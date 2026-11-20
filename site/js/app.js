@@ -6,6 +6,7 @@ import { tableFromPaste, usedKeys, fillTemplate, BUILTIN_VARS } from './data.js'
 import { computeRecord, fontKeysFor, textLayerSvg } from './render.js';
 import { buildPdf, buildTestPage } from './export-pdf.js';
 import { subsetFont } from './subset.js';
+import { Sheet } from './sheet.js';
 
 const hbWasm = () => fetch('vendor/harfbuzz-subset.wasm').then(r => { if (!r.ok) throw new Error('subset wasm'); return r.arrayBuffer(); });
 const subsetFn = (bytes, cps) => subsetFont(hbWasm, bytes, cps);
@@ -16,7 +17,7 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
 const STORE_KEY = 'sense-award:state:v3';
-const LAYOUT_VERSION = 3;
+const LAYOUT_VERSION = 4;
 
 // ---------- 상태 ----------
 function freshState() {
@@ -31,7 +32,7 @@ function freshState() {
     offset: { x: 0, y: 0 },
     measured: 100,
     stamp: { enabled: false, src: null, png: null, imgW: 0, imgH: 0, white: true, red: false, size: 20, dx: -5, dy: 0, manual: false },
-    showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: false,
+    showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: false, colWidths: {},
     dataMode: 'paste', selected: null, sel: [], snap: true,
     layoutVersion: LAYOUT_VERSION,
   };
@@ -315,15 +316,46 @@ function renderData() {
   renderGrid();
   renderDirect();
   renderKeyChips();
+  // 표가 보이면 첫 칸을 골라 두어 바로 Ctrl+V 할 수 있게
+  if (state.dataMode === 'paste' && state.step === 2) requestAnimationFrame(() => { const sh = getSheet(); sh.paintSel(false); sh.focus(); });
+}
+
+// 엑셀처럼 쓰는 명단 표
+let sheet = null;
+function renderTemplatesForRename(oldName, newName) {
+  const re = new RegExp(`\\{\\{\\s*${oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(:\\s*\\d+)?\\s*\\}\\}`, 'g');
+  state.fields.forEach(f => { f.text = f.text.replace(re, (m, pad) => `{{${newName}${pad ? pad.replace(/\s/g, '') : ''}}}`); });
+}
+function getSheet() {
+  if (sheet) return sheet;
+  sheet = new Sheet($('#sheetBox'), {
+    model: () => state,
+    widths: () => (state.colWidths || (state.colWidths = {})),
+    rowsInserted(at, n) { syncOverrides(); state.overrides.splice(at, 0, ...Array.from({ length: n }, () => ({}))); state.overrides.length = state.rows.length; },
+    rowsDeleted(at, n) { syncOverrides(); state.overrides.splice(at, n); },
+    renamed(oldName, newName) {
+      renderTemplatesForRename(oldName, newName);
+      if (state.colWidths && state.colWidths[oldName]) { state.colWidths[newName] = state.colWidths[oldName]; delete state.colWidths[oldName]; }
+    },
+    replacedAll() { state.overrides = []; state.current = 0; syncOverrides(); },
+    changed(kind) {
+      if (kind === 'widths') { save(); return; }
+      syncOverrides();
+      if (state.current >= state.rows.length) state.current = Math.max(0, state.rows.length - 1);
+      $('#rowCount').textContent = `${state.rows.length}명`;
+      renderKeyChips();
+      renderRibbon();
+      refresh();
+    },
+    activeRow(r) { if (r !== state.current) { state.current = r; refresh(); } },
+    undo, redo,
+    status: msg => setStatus(msg),
+  });
+  return sheet;
 }
 
 function renderGrid() {
-  const cols = state.columns;
-  // 긴 글이 든 항목(내용 등)은 칸을 넓게
-  const wideCols = new Set(cols.map((c, ci) => ci).filter(ci => state.rows.some(r => (r[ci] || '').length > 24)));
-  const head = `<thead><tr><th class="idx">#</th>${cols.map((c, i) => `<th><div class="th"><input class="colname" data-col="${i}" value="${esc(c)}" aria-label="항목 이름"><button class="x" data-delcol="${i}" title="이 항목 빼기">×</button></div></th>`).join('')}<th></th></tr></thead>`;
-  const body = state.rows.map((r, ri) => `<tr class="${ri === state.current ? 'cur' : ''}"><td class="idx"><button class="link" data-goto-rec="${ri}">${ri + 1}</button></td>${cols.map((_, ci) => `<td><input class="cell${wideCols.has(ci) ? ' wide' : ''}" data-r="${ri}" data-c="${ci}" value="${esc(r[ci] ?? '')}"></td>`).join('')}<td><button class="x" data-delrow="${ri}" title="이 줄 빼기">×</button></td></tr>`).join('');
-  $('#grid').innerHTML = head + `<tbody>${body}</tbody>`;
+  getSheet().render();
   $('#rowCount').textContent = `${state.rows.length}명`;
 }
 
@@ -373,22 +405,6 @@ function applyMapping(key, col) {
   if (!col) return;
   const re = new RegExp(`\\{\\{\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(:\\s*\\d+)?\\s*\\}\\}`, 'g');
   state.fields.forEach(f => { f.text = f.text.replace(re, (m, pad) => `{{${col}${pad ? pad.replace(/\s/g, '') : ''}}}`); });
-}
-
-function applyPaste(text) {
-  const t = tableFromPaste(text, $('#headerRow').checked);
-  if (!t || !t.rows.length) { setStatus('붙여 넣은 내용에서 표를 찾지 못했어요.'); return; }
-  const oldCols = state.columns;
-  state.columns = t.columns;
-  state.rows = t.rows;
-  state.overrides = [];
-  state.current = 0;
-  renderData();
-  refresh();
-  const unknown = new Set();
-  state.fields.forEach(f => usedKeys(f.text).forEach(k => { if (!t.columns.includes(k) && !BUILTIN_VARS.includes(k)) unknown.add(k); }));
-  setStatus(`${t.rows.length}명을 불러왔어요.` + (unknown.size ? ` 문구에 쓴 변수 중 명단에 없는 항목: ${[...unknown].join(', ')} — 3단계에서 바꿔 주세요.` : ''));
-  if (oldCols.join() !== t.columns.join()) renderRibbon();
 }
 
 function renameColumn(i, name) {
@@ -1112,7 +1128,15 @@ async function renderSummary() {
   if (overCount) msgs.push(`글이 다 들어가지 않는 상장이 ${overCount}장 있어요. 목록에서 골라 글을 줄이거나, 3단계에서 상자를 키워 주세요.`);
   warn.hidden = !msgs.length;
   warn.innerHTML = msgs.map(t => `<p>${t}</p>`).join('');
-  $('#fontLinks').innerHTML = usedFonts.map(f => `<li><b>${esc(f.name)}</b> <a href="${f.url}" target="_blank" rel="noopener">내려받는 곳</a> <span class="hint">${esc(f.license)}</span></li>`).join('');
+  $('#fontLinks').innerHTML = usedFonts.map(f => {
+    // 파일 이름으로 굵기를 알려 준다(Regular·Bold)
+    const files = (f.ttf || []).map(p => {
+      const name = p.split('/').pop();
+      const weight = /Bold/i.test(name) ? '굵게' : '보통';
+      return `<a class="ttf-dl" href="${p}" download="${f.ttf.length > 1 ? `${f.name}-${weight}` : f.name}.ttf">TTF 내려받기${f.ttf.length > 1 ? ` (${weight})` : ''}</a>`;
+    }).join('');
+    return `<li><b>${esc(f.name)}</b> ${files} <a class="src" href="${f.url}" target="_blank" rel="noopener">공식 안내</a><span class="hint">${esc(f.license)}</span></li>`;
+  }).join('');
 }
 
 let listTimer = 0;
@@ -1348,52 +1372,15 @@ function bind() {
 
   // 2단계
   $$('.seg [data-mode]').forEach(b => b.addEventListener('click', () => { state.dataMode = b.dataset.mode; renderData(); save(); }));
-  $('#pasteBox').addEventListener('paste', e => {
+  // 2단계에서 표 밖(입력란이 아닌 곳)을 보고 있을 때 Ctrl+V 하면 표의 고른 칸에 붙인다
+  document.addEventListener('paste', e => {
+    if (state.step !== 2 || state.dataMode !== 'paste') return;
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
     const text = e.clipboardData.getData('text/plain');
     if (!text) return;
     e.preventDefault();
-    applyPaste(text);
-  });
-  $('#pasteBox').addEventListener('change', e => { if (e.target.value.trim()) { applyPaste(e.target.value); e.target.value = ''; } });
-  $('#grid').addEventListener('input', e => {
-    const c = e.target.closest('.cell');
-    if (c) { state.rows[c.dataset.r][c.dataset.c] = c.value; refresh(); }
-  });
-  $('#grid').addEventListener('change', e => { const c = e.target.closest('.colname'); if (c) renameColumn(Number(c.dataset.col), c.value); });
-  $('#grid').addEventListener('focusin', e => {
-    const c = e.target.closest('.cell');
-    if (c && Number(c.dataset.r) !== state.current) {
-      state.current = Number(c.dataset.r);
-      $$('#grid tbody tr').forEach((tr, i) => tr.classList.toggle('cur', i === state.current));
-      refresh();
-    }
-  });
-  $('#grid').addEventListener('click', e => {
-    const dr = e.target.closest('[data-delrow]');
-    const dc = e.target.closest('[data-delcol]');
-    const go = e.target.closest('[data-goto-rec]');
-    if (dr) { syncOverrides(); const i = Number(dr.dataset.delrow); state.rows.splice(i, 1); state.overrides.splice(i, 1); renderData(); refresh(); }
-    if (dc) {
-      const i = Number(dc.dataset.delcol);
-      if (!confirm(`'${state.columns[i]}' 항목을 뺄까요?`)) return;
-      state.columns.splice(i, 1); state.rows.forEach(r => r.splice(i, 1)); renderData(); refresh();
-    }
-    if (go) { state.current = Number(go.dataset.gotoRec); renderGrid(); refresh(); }
-  });
-  // 표 칸에 여러 칸짜리를 붙여 넣으면 그 자리부터 채운다
-  $('#grid').addEventListener('paste', e => {
-    const c = e.target.closest('.cell');
-    const text = e.clipboardData.getData('text/plain');
-    if (!c || !/[\t\n]/.test(text.trim())) return;
-    e.preventDefault();
-    const t = tableFromPaste(text, false);
-    const r0 = Number(c.dataset.r), c0 = Number(c.dataset.c);
-    t.rows.forEach((row, ri) => {
-      const r = r0 + ri;
-      while (state.rows.length <= r) state.rows.push(state.columns.map(() => ''));
-      row.forEach((v, ci) => { if (c0 + ci < state.columns.length) state.rows[r][c0 + ci] = v; });
-    });
-    renderGrid(); refresh();
+    getSheet().paste(text);
+    getSheet().focus();
   });
   $('#mapCard').addEventListener('click', e => {
     const one = e.target.closest('[data-apply-map]');
@@ -1405,12 +1392,8 @@ function bind() {
     e.preventDefault();
     renderMapping(); refresh();
   });
-  $('#addRow').addEventListener('click', () => { state.rows.push(state.columns.map(() => '')); state.current = state.rows.length - 1; renderData(); refresh(); });
-  $('#addCol').addEventListener('click', () => {
-    let name = '새항목'; let k = 1;
-    while (state.columns.includes(name)) name = `새항목${++k}`;
-    state.columns.push(name); state.rows.forEach(r => r.push('')); renderData(); refresh();
-  });
+  $('#addRow').addEventListener('click', () => { const sh = getSheet(); sh.insertRows(state.rows.length, 1); sh.setSel({ r: state.rows.length - 1, c: 0 }); sh.focus(); });
+  $('#addCol').addEventListener('click', () => { const sh = getSheet(); sh.insertCols(state.columns.length, 1); sh.setSel({ r: -1, c: state.columns.length - 1 }); sh.focus(); });
   $('#dPrev').addEventListener('click', () => { if (state.current > 0) { state.current--; renderDirect(); refresh(); } });
   $('#dNext').addEventListener('click', () => { if (state.current < state.rows.length - 1) { state.current++; renderDirect(); refresh(); } });
   $('#dAdd').addEventListener('click', () => {

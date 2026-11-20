@@ -5,27 +5,33 @@ export const FONTS = [
   {
     id: 'chosun-gs', name: '조선궁서체', hwpFace: '조선궁서체', kind: '궁서',
     regular: 'fonts/print/ChosunGs.woff', bold: null,
+    // 한글(HWPX)에서 쓰도록 PC에 설치할 TTF: WOFF 포장만 푼 것(글꼴 표는 원본과 같음)
+    ttf: ['fonts/print/ChosunGs.ttf'],
     license: '조선일보 전용서체 — 개인·기업 무료, 임베딩 허용',
     url: 'https://www.sandollcloud.com/font/FREE/6221.html',
   },
   {
     id: 'nanum-myeongjo', name: '나눔명조', hwpFace: '나눔명조', kind: '명조',
     regular: 'fonts/print/NanumMyeongjo-Regular.ttf', bold: 'fonts/print/NanumMyeongjo-Bold.ttf',
+    ttf: ['fonts/print/NanumMyeongjo-Regular.ttf', 'fonts/print/NanumMyeongjo-Bold.ttf'],
     license: 'SIL OFL 1.1', url: 'https://hangeul.naver.com/font',
   },
   {
     id: 'gowun-batang', name: '고운바탕', hwpFace: 'Gowun Batang', kind: '바탕',
     regular: 'fonts/print/GowunBatang-Regular.ttf', bold: 'fonts/print/GowunBatang-Bold.ttf',
+    ttf: ['fonts/print/GowunBatang-Regular.ttf', 'fonts/print/GowunBatang-Bold.ttf'],
     license: 'SIL OFL 1.1', url: 'https://fonts.google.com/specimen/Gowun+Batang',
   },
   {
     id: 'nanum-gothic', name: '나눔고딕', hwpFace: '나눔고딕', kind: '고딕',
     regular: 'fonts/print/NanumGothic-Regular.ttf', bold: 'fonts/print/NanumGothic-Bold.ttf',
+    ttf: ['fonts/print/NanumGothic-Regular.ttf', 'fonts/print/NanumGothic-Bold.ttf'],
     license: 'SIL OFL 1.1', url: 'https://hangeul.naver.com/font',
   },
   {
     id: 'gowun-dodum', name: '고운돋움', hwpFace: 'Gowun Dodum', kind: '돋움',
     regular: 'fonts/print/GowunDodum-Regular.ttf', bold: null,
+    ttf: ['fonts/print/GowunDodum-Regular.ttf'],
     license: 'SIL OFL 1.1', url: 'https://fonts.google.com/specimen/Gowun+Dodum',
   },
 ];

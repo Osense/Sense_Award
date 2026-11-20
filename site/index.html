@@ -122,11 +122,12 @@
       </div>
 
       <div class="mode" data-mode="paste">
-        <div class="paste-zone" id="pasteZone">
-          <textarea id="pasteBox" rows="3" placeholder="엑셀에서 표를 복사한 뒤 여기를 누르고 붙여 넣으세요 (Ctrl+V)"></textarea>
-          <div class="paste-opts">
-            <label class="check"><input type="checkbox" id="headerRow" checked> 첫 줄은 항목 이름(키)</label>
-            <span class="hint">표 칸을 누른 뒤 붙여 넣으면 그 자리부터 채워져요.</span>
+        <div class="sheet-bar">
+          <p class="sheet-tips"><b>엑셀처럼 쓰세요.</b> 칸을 누르고 Ctrl+V로 붙여 넣으면 그 자리부터 채워져요. 엑셀에서 제목 줄까지 복사했다면 맨 위 <b>항목</b> 줄의 첫 칸(A)에 붙여 넣으면 표 전체가 바뀌어요.<br>끌어서 여러 칸 고르기 · 그냥 치면 입력, F2나 두 번 눌러 고치기 · Delete 지우기 · 오른쪽 클릭으로 줄·항목 넣기·삭제 · 고른 칸 오른쪽 아래 점을 끌면 채우기</p>
+          <div class="sheet-actions">
+            <button class="small" id="addRow">줄 추가</button>
+            <button class="small" id="addCol">항목 추가</button>
+            <span class="count" id="rowCount"></span>
           </div>
         </div>
         <div class="card warn" id="mapCard" hidden>
@@ -134,12 +135,7 @@
           <p>상장 문구에 쓴 변수 중 명단에 없는 것이 있어요. 어느 항목 값을 넣을지 고르세요.</p>
           <div id="mapRows" class="map-rows"></div>
         </div>
-        <div class="table-tools">
-          <button class="small" id="addRow">줄 추가</button>
-          <button class="small" id="addCol">항목 추가</button>
-          <span class="count" id="rowCount"></span>
-        </div>
-        <div class="table-wrap"><table class="grid" id="grid"></table></div>
+        <div id="sheetBox" class="sheet-box"></div>
         <div class="keys-line"><span class="hint">쓸 수 있는 변수</span><div class="chips" id="keyChips"></div></div>
       </div>
 
