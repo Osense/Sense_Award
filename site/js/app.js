@@ -16,7 +16,9 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
-const STORE_KEY = 'sense-award:state:v3';
+const STORE_KEY = 'sense-award:state:v3'; // 프로젝트 기능 전의 저장 자리(한 번 옮겨 담는다)
+const INDEX_KEY = 'sense-award:projects';
+const PKEY = id => `sense-award:project:${id}`;
 const LAYOUT_VERSION = 4;
 
 // ---------- 상태 ----------
@@ -38,11 +40,12 @@ function freshState() {
   };
 }
 
-let state = load() || freshState();
+let state = freshState();
+let projectId = null; // null이면 처음 화면(프로젝트 목록)
 
-function load() {
+// 저장된 상태를 지금 판에 맞게 살린다
+function hydrate(raw) {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
     // 남은 작업 내용은 살리되, 화면은 늘 첫 단계(용지)에서 시작한다
@@ -61,17 +64,159 @@ function load() {
     return st;
   } catch { return null; }
 }
+// ---------- 프로젝트(이 기기 저장) ----------
+function readIndex() { try { return JSON.parse(localStorage.getItem(INDEX_KEY)) || []; } catch { return []; } }
+function writeIndex(list) { try { localStorage.setItem(INDEX_KEY, JSON.stringify(list)); } catch {} }
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+// 화면만 바뀌는 값은 빼고 내용만 비교한다(열어 보기만 해서는 수정 시각이 바뀌지 않게)
+const contentKey = st => JSON.stringify({ ...st, step: 0, current: 0, selected: null, sel: [], zoom: 0, dataMode: '' });
+let savedKey = '';
+
+function projectMeta(st) {
+  const row = st.rows[0] || [];
+  const txt = id => { const f = st.fields.find(x => x.id === id); return f ? fillTemplate(f.text, st.columns, row, 0).text.replace(/\s+/g, ' ').trim() : ''; };
+  return { count: st.rows.length, title: txt('title'), nameText: txt('name'), border: st.border };
+}
+
+function persist() {
+  clearTimeout(saveTimer);
+  if (!projectId) return;
+  const key = contentKey(state);
+  if (key === savedKey) return;
+  try { localStorage.setItem(PKEY(projectId), JSON.stringify(state)); }
+  catch {
+    // 이미지가 커서 못 담으면 이미지만 빼고 저장
+    try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false } })); } catch {}
+  }
+  savedKey = key;
+  const list = readIndex();
+  const p = list.find(x => x.id === projectId);
+  if (p) { Object.assign(p, projectMeta(state), { updated: Date.now() }); writeIndex(list); }
+}
+
 let saveTimer = 0;
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
-    catch {
-      // 이미지가 커서 못 담으면 이미지만 빼고 저장
-      try { localStorage.setItem(STORE_KEY, JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false } })); } catch {}
-    }
-  }, 300);
+  saveTimer = setTimeout(persist, 300);
   scheduleCommit();
+}
+
+// 프로젝트 기능 전에 쓰던 작업을 첫 프로젝트로 옮긴다
+function migrateOld() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return;
+    if (!readIndex().length) {
+      const id = newId(), st = hydrate(raw) || freshState();
+      localStorage.setItem(PKEY(id), raw);
+      writeIndex([{ id, name: '이전 작업', created: Date.now(), updated: Date.now(), ...projectMeta(st) }]);
+    }
+    localStorage.removeItem(STORE_KEY);
+  } catch {}
+}
+
+function uniqueName(base) {
+  const names = new Set(readIndex().map(p => p.name));
+  if (!names.has(base)) return base;
+  let k = 2;
+  while (names.has(`${base} ${k}`)) k++;
+  return `${base} ${k}`;
+}
+
+function openProject(id) {
+  persist();
+  const st = hydrate(localStorage.getItem(PKEY(id)));
+  if (!st) { setStatus('프로젝트를 열지 못했어요'); return; }
+  state = st;
+  projectId = id;
+  savedKey = contentKey(state);
+  sheet = null;
+  applyViewToggles();
+  resetHistory();
+  renderProjLabel();
+  setStep(1);
+}
+
+function newProject() {
+  persist();
+  const id = newId();
+  const st = freshState();
+  const list = readIndex();
+  list.push({ id, name: uniqueName('새 프로젝트'), created: Date.now(), updated: Date.now(), ...projectMeta(st) });
+  writeIndex(list);
+  try { localStorage.setItem(PKEY(id), JSON.stringify(st)); } catch {}
+  openProject(id);
+}
+
+function duplicateProject(id) {
+  persist();
+  const list = readIndex();
+  const i = list.findIndex(p => p.id === id);
+  const raw = localStorage.getItem(PKEY(id));
+  if (i < 0 || !raw) return;
+  const nid = newId();
+  try { localStorage.setItem(PKEY(nid), raw); }
+  catch { alert('저장 공간이 모자라 복제하지 못했어요. 쓰지 않는 프로젝트를 지워 주세요.'); return; }
+  list.splice(i + 1, 0, { ...list[i], id: nid, name: uniqueName(`${list[i].name} 복사본`), created: Date.now(), updated: Date.now() });
+  writeIndex(list);
+  renderHome();
+}
+
+function deleteProject(id) {
+  const list = readIndex();
+  const p = list.find(x => x.id === id);
+  if (!p || !confirm(`'${p.name}' 프로젝트를 지울까요? 되돌릴 수 없어요.`)) return;
+  writeIndex(list.filter(x => x.id !== id));
+  try { localStorage.removeItem(PKEY(id)); } catch {}
+  if (projectId === id) { projectId = null; state = freshState(); savedKey = ''; }
+  renderHome();
+}
+
+function renameProject(id, name) {
+  name = String(name || '').trim();
+  const list = readIndex();
+  const p = list.find(x => x.id === id);
+  if (!p) return;
+  if (name) p.name = name;
+  writeIndex(list);
+  renderProjLabel();
+}
+
+function goHome() {
+  persist();
+  closeEditor();
+  projectId = null;
+  renderProjLabel();
+  setStep(0);
+}
+
+function renderProjLabel() {
+  const p = projectId && readIndex().find(x => x.id === projectId);
+  $('#projLabel').textContent = p ? p.name : '';
+  $('#projLabel').title = p ? `지금 프로젝트: ${p.name} — 누르면 프로젝트 목록` : '';
+}
+
+const fmtTime = t => { const d = new Date(t); const z = n => String(n).padStart(2, '0'); return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}. ${z(d.getHours())}:${z(d.getMinutes())}`; };
+
+function renderHome() {
+  const list = readIndex().sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  const cards = list.map(p => {
+    const thumb = svgDataUrl(borderSvg(normBorder(p.border || BORDER_DEFAULT)));
+    return `<article class="proj-card" data-id="${esc(p.id)}">
+      <button class="proj-thumb" data-act="open" title="열기" style="background-image:url(&quot;${thumb}&quot;)">
+        <span class="t">${esc(p.title || '')}</span><span class="n">${esc(p.nameText || '')}</span>
+      </button>
+      <input class="proj-name" value="${esc(p.name)}" aria-label="프로젝트 이름" title="눌러서 이름 바꾸기">
+      <div class="proj-meta">명단 ${p.count ?? 0}명 · ${fmtTime(p.updated || p.created || Date.now())}</div>
+      <div class="proj-acts">
+        <button class="small primary" data-act="open">열기</button>
+        <button class="small" data-act="dup">복제</button>
+        <button class="small danger" data-act="del">삭제</button>
+      </div>
+    </article>`;
+  }).join('');
+  $('#projGrid').innerHTML = `<button class="proj-new" id="homeNew"><span class="plus">+</span><b>새 프로젝트</b><span class="hint">견본 명단과 기본 용지로 시작해요</span></button>` + cards;
+  $('#projEmpty').hidden = list.length > 0;
 }
 
 const paperSize = () => PAPER;
@@ -170,7 +315,7 @@ function restore(snap) {
   refresh();
   updateHistButtons();
   restoring = false;
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {}
+  persist();
 }
 
 function undo() {
@@ -227,6 +372,7 @@ function setStep(n) {
   if (n === 2) renderData();
   if (n === 3) renderRibbon();
   if (n === 4) { renderSummary(); renderOffset(); }
+  if (n === 0) renderHome();
   $$('.page-scroll, .inspector').forEach(el => { el.scrollTop = 0; });
   refresh();
   requestAnimationFrame(applyZoom);
@@ -1275,7 +1421,22 @@ async function exportHwpx() {
 
 // ---------- 이벤트 ----------
 function bind() {
-  $('#stepTabs').addEventListener('click', e => { const b = e.target.closest('[data-step]'); if (b) setStep(Number(b.dataset.step)); });
+  $('#stepTabs').addEventListener('click', e => { const b = e.target.closest('[data-step]'); if (b && projectId) setStep(Number(b.dataset.step)); });
+  $('#homeBtn').addEventListener('click', goHome);
+  $('#projLabel').addEventListener('click', goHome);
+  $('#projGrid').addEventListener('click', e => {
+    if (e.target.closest('#homeNew')) { newProject(); return; }
+    const card = e.target.closest('.proj-card'), b = e.target.closest('[data-act]');
+    if (!card || !b) return;
+    const id = card.dataset.id;
+    if (b.dataset.act === 'open') openProject(id);
+    if (b.dataset.act === 'dup') duplicateProject(id);
+    if (b.dataset.act === 'del') deleteProject(id);
+  });
+  $('#projGrid').addEventListener('change', e => { const inp = e.target.closest('.proj-name'); if (inp) renameProject(inp.closest('.proj-card').dataset.id, inp.value); });
+  $('#projGrid').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.closest('.proj-name')) e.target.blur(); });
+  window.addEventListener('pagehide', persist);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
   $$('[data-goto]').forEach(b => b.addEventListener('click', () => setStep(Number(b.dataset.goto))));
   $('#themeBtn').addEventListener('click', () => {
     const dark = document.documentElement.dataset.theme !== 'dark';
@@ -1287,7 +1448,8 @@ function bind() {
   $('#resetBtn').addEventListener('click', () => {
     if (!confirm('명단·문구·배치를 처음 상태로 되돌릴까요?')) return;
     state = freshState();
-    resetHistory(); setStep(1); refresh();
+    sheet = null;
+    resetHistory(); applyViewToggles(); setStep(1); refresh();
   });
 
   // 1단계: 테두리 수치
@@ -1556,12 +1718,18 @@ async function downscale(im, maxSide) {
 }
 
 // ---------- 시작 ----------
+function applyViewToggles() {
+  $('#showBg').checked = state.showBg;
+  $('#showBoxes').checked = state.showBoxes;
+  $('#bgInPdf').checked = state.bgInPdf;
+  $$('#rangeSeg button').forEach(x => x.classList.toggle('on', x.dataset.range === state.range));
+}
+
 bind();
 new ResizeObserver(() => { applyZoom(); positionEditor(); }).observe($('#canvas'));
-$('#showBg').checked = state.showBg;
-$('#showBoxes').checked = state.showBoxes;
-$('#bgInPdf').checked = state.bgInPdf;
-$$('#rangeSeg button').forEach(x => x.classList.toggle('on', x.dataset.range === state.range));
+migrateOld();
+applyViewToggles();
 resetHistory();
-setStep(1);
-refresh();
+window.__sa = { state: () => state, project: () => projectId };
+// 늘 처음 화면(프로젝트 목록)에서 시작한다
+setStep(0);

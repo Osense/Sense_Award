@@ -26,7 +26,7 @@ export function parseTSV(text) {
   // 끝의 빈 줄 제거
   while (rows.length && rows[rows.length - 1].every(v => v.trim() === '')) rows.pop();
   const width = rows.reduce((m, r) => Math.max(m, r.length), 0);
-  return rows.map(r => { const o = r.slice(); while (o.length < width) o.push(''); return o.map(v => v.trim()); });
+  return rows.map(r => { const o = r.slice(); while (o.length < width) o.push(''); return o.map(v => v.replace(/\s+$/, '')); }); // 앞 공백(들여쓰기)은 살리고 끝 공백만 지운다
 }
 
 /** 붙여넣은 표 → { columns, rows } */

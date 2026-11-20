@@ -31,39 +31,43 @@ function toChars(str, font, fallback) {
 }
 
 // 어절 단위 줄 나눔. 어절 하나가 한 줄보다 길면 그 어절만 글자 단위로 끊는다.
+// 문단 맨 앞 공백은 들여쓰기로 살린다(첫 줄에만, 늘리지 않는 고정 너비).
 function wrapParagraph(par, width, sizeMm, scale, spacing, font, fallback, spaceEm) {
-  const words = par.split(/ +/).filter((w, i, arr) => w.length || arr.length === 1);
+  const lead = (par.match(/^ +/) || [''])[0].length;
+  const words = par.slice(lead).split(/ +/).filter((w, i, arr) => w.length || arr.length === 1);
   const spaceW = spaceEm * sizeMm * scale / 100 + spacing * sizeMm / 100;
+  const indentW = Math.min(lead * spaceW, width * 0.5);
   const lines = [];
-  let cur = [];
-  let curW = 0;
+  let cur = lead ? [{ indent: true, n: lead, w: indentW }] : [];
+  let curW = lead ? indentW : 0;
   let broke = false;
+  const hasWord = () => cur.some(it => !it.indent);
   const push = () => { lines.push(cur); cur = []; curW = 0; };
   for (const word of words) {
     const chars = toChars(word, font, fallback);
     const ww = measureWord(chars, sizeMm, scale, spacing);
-    const need = cur.length ? curW + spaceW + ww : ww;
+    const need = hasWord() ? curW + spaceW + ww : curW + ww;
     if (need <= width + 1e-6) {
-      if (cur.length) cur.push({ space: true, w: spaceW });
+      if (hasWord()) cur.push({ space: true, w: spaceW });
       cur.push({ chars, w: ww });
       curW = need;
       continue;
     }
-    if (cur.length) push();
-    if (ww <= width + 1e-6) { cur.push({ chars, w: ww }); curW = ww; continue; }
+    if (hasWord()) push();
+    if (curW + ww <= width + 1e-6) { cur.push({ chars, w: ww }); curW += ww; continue; }
     // 어절이 너무 길다 → 글자 단위로 끊기(맞춤 실패 신호로도 쓴다)
     broke = true;
     let piece = [];
     let pw = 0;
     for (const c of chars) {
       const cw = c.em * sizeMm * scale / 100 + spacing * sizeMm / 100;
-      if (piece.length && pw + cw > width + 1e-6) {
+      if (piece.length && curW + pw + cw > width + 1e-6) {
         cur.push({ chars: piece, w: pw }); push();
         piece = []; pw = 0;
       }
       piece.push(c); pw += cw;
     }
-    if (piece.length) { cur.push({ chars: piece, w: pw }); curW = pw; }
+    if (piece.length) { cur.push({ chars: piece, w: pw }); curW += pw; }
   }
   if (cur.length || !lines.length) push();
   return { lines, broke };
@@ -127,7 +131,9 @@ export function placeLines(fit, box, st, font) {
     // 줄에 있는 글자를 펼친다
     const glyphs = [];
     let spaces = 0;
+    const ind = line.items[0] && line.items[0].indent ? line.items[0].w : 0;
     for (const it of line.items) {
+      if (it.indent) continue;
       if (it.space) { glyphs.push({ space: true, w: it.w }); spaces++; continue; }
       for (const c of it.chars) glyphs.push({ ...c, w: c.em * k * scale / 100 + spacing * k / 100 });
     }
@@ -135,8 +141,8 @@ export function placeLines(fit, box, st, font) {
     let lineW = glyphs.reduce((a, g) => a + g.w, 0);
     const lastReal = [...glyphs].reverse().find(g => !g.space);
     if (lastReal) lineW -= spacing * k / 100;
-    const extra = box.w - lineW;
-    let x = box.x;
+    const extra = box.w - ind - lineW;
+    let x = box.x + ind;
     let perSpace = 0;
     let perGap = 0;
     const align = st.align || 'left';
@@ -157,7 +163,7 @@ export function placeLines(fit, box, st, font) {
       chars.push({ ch: g.ch, cp: g.cp, fb: g.fb, x, w: g.em * k * scale / 100 });
       x += g.w + (gi < glyphs.length - 1 ? perGap : 0);
     });
-    const text = line.items.map(it => it.space ? ' ' : it.chars.map(c => c.ch).join('')).join('');
+    const text = line.items.map(it => it.indent ? ' '.repeat(it.n) : it.space ? ' ' : it.chars.map(c => c.ch).join('')).join('');
     out.push({ text, baseline, top: top + li * pitch, chars, last: line.last });
   });
   return out;

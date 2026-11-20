@@ -5,6 +5,7 @@
 @font-face { font-family: 'JetBrains Mono'; src: url('fonts/ui/JetBrainsMono-400.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('fonts/ui/JetBrainsMono-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
 
+@font-face { font-family: 'Chosun Gungseo'; src: url('fonts/print/ChosunGs.woff') format('woff'); font-display: swap; }
 /* ---------- 1. 디자인 토큰 ---------- */
 :root {
   color-scheme: light;
@@ -487,7 +488,7 @@ button.alt { background: var(--brand-grad); border: 0; }
 .xl { position: relative; outline: none; }
 .xl-scroll { position: relative; overflow: auto; height: calc(100vh - 360px); min-height: 300px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
 .xl-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 13.5px; user-select: none; }
-.xl-table th, .xl-table td { border-right: 1px solid var(--divider); border-bottom: 1px solid var(--divider); height: 32px; padding: 0 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-weight: 400; }
+.xl-table th, .xl-table td { border-right: 1px solid var(--divider); border-bottom: 1px solid var(--divider); height: 32px; padding: 0 9px; white-space: pre; overflow: hidden; text-overflow: ellipsis; text-align: left; font-weight: 400; }
 .xl-table thead th, .xl-table thead td { position: sticky; z-index: 3; }
 .xl-letters th { top: 0; height: 24px; background: var(--raised); color: var(--dim); font: 500 11px var(--font-mono); text-align: center; cursor: s-resize; position: sticky; }
 .xl-names td, .xl-names th { top: 24px; background: color-mix(in oklch, var(--accent) 7%, var(--panel)); }
@@ -524,3 +525,37 @@ button.alt { background: var(--brand-grad); border: 0; }
 .font-links .ttf-dl { font-weight: 700; }
 .font-links .src { color: var(--muted); font-size: 12px; }
 .font-links .hint { flex-basis: 100%; }
+
+/* 처음 화면: 프로젝트 목록 */
+.wordmark .mark-link { display: inline-flex; }
+.wordmark button.bn { border: 0; background: transparent; padding: 2px 4px; margin: 0; color: var(--text); text-align: left; cursor: pointer; border-radius: 8px; min-height: 0; }
+.wordmark button.bn:hover b { color: var(--accent); }
+.proj-label { border: 0; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 600; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px; min-height: 0; }
+.proj-label:empty { display: none; }
+.proj-label:hover { color: var(--accent); }
+body[data-step="0"] .step-tabs, body[data-step="0"] .hist, body[data-step="0"] #resetBtn, body[data-step="0"] .top-sep { visibility: hidden; }
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 18px; }
+.proj-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 340px; border: 2px dashed var(--border); border-radius: 14px; background: transparent; color: var(--text); font-size: 15px; }
+.proj-new:hover { border-color: var(--accent); color: var(--accent); }
+.proj-new .plus { font-size: 40px; line-height: 1; font-weight: 300; }
+.proj-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
+.proj-thumb { position: relative; aspect-ratio: 210 / 297; width: 100%; border: 1px solid var(--divider); border-radius: 6px; background: #fff center / contain no-repeat; padding: 0; overflow: hidden; color: #222; font-family: 'Chosun Gungseo', 'ChosunGs', serif; }
+.proj-thumb:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.proj-thumb .t { position: absolute; left: 0; right: 0; top: 23%; text-align: center; font-size: 22px; letter-spacing: .3em; }
+.proj-thumb .n { position: absolute; right: 22%; top: 37%; font-size: 12px; letter-spacing: .2em; }
+.proj-name { width: 100%; font-weight: 700; font-size: 14.5px; border: 1px solid transparent; background: transparent; padding: 4px 6px; border-radius: 6px; color: var(--text); }
+.proj-name:hover, .proj-name:focus { border-color: var(--border); background: var(--bg); }
+.proj-meta { font-size: 12px; color: var(--muted); padding: 0 6px; }
+.proj-acts { display: flex; gap: 6px; }
+.proj-acts button { flex: 1; }
+
+/* 2단계: 화면은 그대로 두고 명단 표 안에서만 스크롤 */
+@media (min-width: 861px) {
+  .page[data-step="2"] .page-scroll:has(> .mode[data-mode="paste"]:not([hidden])) { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 16px; }
+  .page[data-step="2"] .page-scroll > .page-head { flex: none; width: 100%; }
+  .page[data-step="2"] .mode[data-mode="paste"]:not([hidden]) { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+  .page[data-step="2"] .mode[data-mode="paste"] > * { flex: none; }
+  .page[data-step="2"] #sheetBox { flex: 1 1 auto; min-height: 160px; display: flex; flex-direction: column; }
+  .page[data-step="2"] #sheetBox > .xl { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .page[data-step="2"] .xl-scroll { flex: 1; height: auto; min-height: 0; }
+}

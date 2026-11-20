@@ -13,13 +13,13 @@
 </head>
 <body>
 <header class="top">
-  <a class="wordmark" href="https://wsns.studio/" target="_blank" rel="noopener" title="WSNS studio 홈페이지" aria-label="쎈스 어워드 — WSNS studio 홈페이지">
-    <img class="mark" src="brand/wsns-mark.svg" alt="" width="166" height="212" draggable="false">
-    <span class="bn">
+  <div class="wordmark">
+    <a class="mark-link" href="https://wsns.studio/" target="_blank" rel="noopener" title="WSNS studio 홈페이지" aria-label="WSNS studio 홈페이지"><img class="mark" src="brand/wsns-mark.svg" alt="" width="166" height="212" draggable="false"></a>
+    <button class="bn" id="homeBtn" title="처음 화면(프로젝트 목록)으로">
       <b>쎈스 어워드</b>
       <small class="pron"><span class="pn-en">WSNS studio</span> <span class="pn-k">[웨스엔에스 스튜디오]</span></small>
-    </span>
-  </a>
+    </button>
+  </div>
   <nav class="step-tabs" id="stepTabs" aria-label="작업 단계">
     <button data-step="1"><span class="n">1</span>용지</button>
     <button data-step="2"><span class="n">2</span>명단</button>
@@ -27,6 +27,7 @@
     <button data-step="4"><span class="n">4</span>확인·내보내기</button>
   </nav>
   <div class="top-actions">
+    <button class="proj-label" id="projLabel"></button>
     <button class="ghost hist" id="undoBtn" title="되돌리기 (Ctrl+Z)" disabled><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3 2 6l3 3"/><path d="M2 6h7.5a4 4 0 0 1 0 8H6"/></svg>되돌리기</button>
     <button class="ghost hist" id="redoBtn" title="다시 하기 (Ctrl+Shift+Z 또는 Ctrl+Y)" disabled><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="m11 3 3 3-3 3"/><path d="M14 6H6.5a4 4 0 0 0 0 8H10"/></svg>다시 하기</button>
     <span class="top-sep"></span>
@@ -36,6 +37,19 @@
 </header>
 
 <main class="pages">
+  <!-- 0. 프로젝트 목록(처음 화면) -->
+  <section class="page" data-step="0">
+    <div class="page-scroll">
+      <div class="page-head">
+        <small>프로젝트</small>
+        <h1>상장 프로젝트</h1>
+        <p>상장 묶음마다 프로젝트를 하나씩 만들어요. 용지·명단·문구·배치·도장이 프로젝트별로 이 기기(브라우저)에 저장돼요. 새 프로젝트는 늘 견본 상태에서 시작하고, 복제하면 같은 설정으로 다른 명단을 만들 수 있어요.</p>
+      </div>
+      <div class="proj-grid" id="projGrid"></div>
+      <p class="hint" id="projEmpty">아직 만든 프로젝트가 없어요. 새 프로젝트로 시작하세요.</p>
+    </div>
+  </section>
+
   <!-- 1. 용지 -->
   <section class="page" data-step="1">
     <div class="paper-page">
