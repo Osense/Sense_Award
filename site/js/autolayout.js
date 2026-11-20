@@ -7,7 +7,7 @@
 // 본문 너비는 용지의 약 2/3, 제목은 글자 수와 상관없이 용지 폭의 약 0.29를 차지한다.
 //
 // 위 비율은 기본 테두리의 글 영역(용지의 0.109~0.891)에 맞춰 글 영역 비율로 바꿔 쓴다.
-// 그래서 1단계에서 테두리를 옮기면 배치도 함께 따라온다.
+// 그래서 1단계에서 테두리를 옮기면 상자 자리와 크기는 함께 따라오고, 글자 크기는 견본 용지 기준 그대로다.
 //
 // 글자 크기 규칙
 //   - 제목이 가장 크다(글 영역 너비의 약 11%, 긴 상장명이면 너비에 맞춰 줄임)
@@ -16,7 +16,7 @@
 //   - 본문 ≤ 이름 ≤ 수여자 ≤ 제목. 날짜는 본문의 95%, 소속은 본문 크기(길면 칸에 맞춰 줄임)
 //   - 다른 항목은 본문 크기에 비례하므로 본문이 커지면 함께 커진다(제목보다 커지지는 않음)
 // 사용자가 직접 옮기거나 크기를 바꾼 칸(manual)은 건드리지 않는다.
-import { contentRect, PAPER } from './papers.js';
+import { contentRect, PAPER, BORDER_DEFAULT } from './papers.js';
 import { fillTemplate } from './data.js';
 import { variantKey } from './fonts.js';
 
@@ -88,50 +88,53 @@ function bodySize(pars, boxW, boxH, lineHeight, hiMm, loMm) {
  * 반환: { fields: {id: {x,y,w,h,size,minSize}}, stamp: {size}, sizes }
  */
 export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
-  const C = contentRect(border, paper);
   const W = paper.w;
   const st = textStats(doc, store, index);
   const em = id => Math.max(st[id] ? st[id].maxEm : 0, 1);
-  const Y = p => C.y + toContent(p) * C.h; // 용지 비율 → 지금 글 영역의 y(mm)
+  // 글 영역 하나에 대한 배치 기준: 세로 비율 → y, 본문 너비(기본 글 영역에서 용지의 2/3 = 글 영역의 95.6%)
+  const geo = Cx => {
+    const Yf = p => Cx.y + toContent(p) * Cx.h;
+    const bwf = Cx.w * (W * REF_PAGE.bodyWidth) / (W - 2 * BASE_INSET);
+    return { C: Cx, Y: Yf, bw: bwf, bx: Cx.x + (Cx.w - bwf) / 2, bottomFor: sz => Yf(REF_PAGE.date) - sz * 0.95 * 0.8 - sz * 1.1 };
+  };
+  // 글자 크기는 견본 용지(기본 테두리) 기준으로 정한다 → 1단계에서 여백을 바꿔도 글자 크기는 그대로.
+  // 상자 자리와 크기는 지금 글 영역 기준 → 여백을 줄이면 상자만 오므라든다.
+  const g0 = geo(contentRect(BORDER_DEFAULT, paper));
+  const g = geo(contentRect(border, paper));
+  const C = g.C, Y = g.Y, bw = g.bw, bx = g.bx;
 
-  // 본문 너비: 기본 글 영역에서 용지의 2/3(= 글 영역의 95.6%)이 되도록 글 영역 기준 비율로.
-  // 그래서 1단계에서 글 영역을 줄이면 상자도 가로로 함께 오므라든다.
-  const bw = C.w * (W * REF_PAGE.bodyWidth) / (W - 2 * BASE_INSET);
-  const bx = C.x + (C.w - bw) / 2;
-
-  // --- 글자 크기(mm)
-  const T = Math.min(C.w * 0.11, (C.w * 0.92) / (em('title') * 1.08), (Y(REF_PAGE.row) - Y(REF_PAGE.number)) * 0.42);
+  // --- 글자 크기(mm): 견본 용지 기준(g0)
+  const T = Math.min(g0.C.w * 0.11, (g0.C.w * 0.92) / (em('title') * 1.08), (g0.Y(REF_PAGE.row) - g0.Y(REF_PAGE.number)) * 0.42);
   const bodyF = doc.fields.find(f => f.id === 'body');
   const lhBody = bodyF ? bodyF.lineHeight : 170;
   const pars = st.body ? st.body.pars : [1];
   // 본문은 위 정렬. 칸은 본문 시작(0.465)부터 날짜 바로 위까지 쓰고,
   // 그 공간을 채우는 가장 큰 글자를 고른다 → 글이 짧으면 글자가 커져 아래가 휑하게 비지 않는다.
-  // (최대: 제목의 62%·28pt. 참고 상장에서 짧은 본문은 26pt 안팎까지 커진다)
-  const dateC = Y(REF_PAGE.date);
-  const bottomFor = s => dateC - s * 0.95 * 0.8 - s * 1.1; // 날짜 위쪽 끝 − 본문 글자 1.1배 간격
-  // 한 줄에 16자 이상(참고 상장 본문은 한 줄 16~18자). 좁은 글 영역에서 양쪽 정렬로 띄어쓰기가 크게 벌어지는 것을 막는다
-  const hiB = Math.min(28 * PT, T * 0.62, bw / 16);
-  let bTop = Y(REF_PAGE.bodyTop);
-  let B = bodySize(pars, bw, s => bottomFor(s) - bTop, lhBody, hiB, 12 * PT);
+  // 한 줄에 16자 이상(참고 상장 본문은 한 줄 16~18자) 들어가는 크기까지만 키운다.
+  const hiB = Math.min(28 * PT, T * 0.62, g0.bw / 16);
+  let topP = REF_PAGE.bodyTop;
+  let B = bodySize(pars, g0.bw, sz => g0.bottomFor(sz) - g0.Y(topP), lhBody, hiB, 12 * PT);
   if (B < 15 * PT) {
     // 글이 아주 많으면 본문 시작을 받는 사람 줄 쪽으로 조금 올린다
-    bTop = Y(0.445);
-    B = bodySize(pars, bw, s => bottomFor(s) - bTop, lhBody, hiB, 11 * PT);
+    topP = 0.445;
+    B = bodySize(pars, g0.bw, sz => g0.bottomFor(sz) - g0.Y(topP), lhBody, hiB, 11 * PT);
   }
   B = Math.min(B, T);
-  const bBot = bottomFor(B);
-  // 수여자: 본문보다 조금 크게(참고 상장 평균 1.2배), 제목 이하, 한 줄에 들어가게
-  // 본문이 커질 때 함께 커지되, 제목이 가장 돋보이도록 제목의 68%를 넘지 않게
+  // 수여자: 본문보다 조금 크게(참고 상장 평균 1.2배), 제목의 68% 이하, 한 줄에 들어가게
   let P = clamp(Math.min(B * 1.2, T * 0.68), B, T);
-  P = clamp(Math.min(P, (C.w * 0.92) / (em('presenter') * 1.06)), B, T);
+  P = clamp(Math.min(P, (g0.C.w * 0.92) / (em('presenter') * 1.06)), B, T);
   // 이름: 본문 이상, 수여자 이하. 받는 사람 줄의 오른쪽 절반에 들어가게(자간을 벌리므로 1.3배로 잰다)
   let N = clamp(Math.min(B * 1.08, T * 0.62), B, P);
-  N = clamp(Math.min(N, ((bw - 2) / 2) / (em('name') * 1.3)), B * 0.8, P);
+  N = clamp(Math.min(N, ((g0.bw - 2) / 2) / (em('name') * 1.3)), B * 0.8, P);
   // 소속(받는 사람 줄 왼쪽): 본문 크기, 이름 이하
-  const A = clamp(Math.min(B, ((bw - 2) / 2) / (em('affiliation') * 1.03)), B * 0.7, N);
+  const A = clamp(Math.min(B, ((g0.bw - 2) / 2) / (em('affiliation') * 1.03)), B * 0.7, N);
   // 날짜: 본문보다 살짝 작게
   const D = clamp(B * 0.95, B * 0.85, P);
   const Num = clamp(B * 0.52, 9 * PT, 11 * PT);
+
+  // --- 본문 칸: 지금 글 영역 기준(g)
+  const bTop = Y(topP);
+  const bBot = Math.max(bTop + B * 1.5, g.bottomFor(B));
 
   const out = {};
   const r = v => Math.round(v * 10) / 10;
