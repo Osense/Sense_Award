@@ -133,6 +133,8 @@ function makeHandle(key, info, fk, bytes) {
       }
       return v;
     },
+    /** 그릴 모양이 없는 글자(공백 등) */
+    empty(cp) { return cp === 32 || this.path(cp) === ''; },
     path(cp) {
       let d = pathCache.get(cp);
       if (d === undefined) {

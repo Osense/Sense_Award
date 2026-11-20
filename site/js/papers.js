@@ -1,190 +1,143 @@
-// 견본 용지(미리보기 전용 배경)와 용지별 기본 배치
-// 배경 그림은 화면에서만 보이고 PDF·HWPX 인쇄 결과에는 들어가지 않는다.
+// 상장 용지: 시판 상장 용지(A4, 금색 이중 테두리) 하나만 쓴다.
+// 테두리는 수치로 그리는 벡터라 1단계에서 미세 조정할 수 있고,
+// 화면 미리보기 배경으로만 쓰며 인쇄에는 기본으로 넣지 않는다(빈 종이 인쇄용 선택 가능).
 
-export const SIZES = {
-  A4P: { w: 210, h: 297, label: 'A4 세로' },
-  A4L: { w: 297, h: 210, label: 'A4 가로' },
-  B5P: { w: 182, h: 257, label: 'B5 세로' },
+export const PAPER = { w: 210, h: 297, label: 'A4 세로 (210×297mm)' };
+export const SIZES = { A4P: PAPER };
+
+// 시판 기본값: 보내 준 용지 사진 비율 기준(테두리가 가장자리에서 약 21mm 안쪽)
+export const BORDER_DEFAULT = {
+  inset: 21,     // 용지 가장자리 → 굵은 선(mm)
+  thick: 1.5,    // 굵은 선 두께(mm)
+  gap: 2.3,      // 굵은 선 → 가는 선 간격(mm)
+  thin: 0.4,     // 가는 선 두께(mm)
+  notch: 5.2,    // 모서리 오목한 반지름(mm)
+  ornament: 1,   // 모서리 덩굴 장식 크기 배율(0이면 없음)
+  color: '#d9a521',
+  pad: 9,        // 가는 선 → 글 영역 안쪽 여백(mm)
 };
 
-const GOLD = '#a8842c';
-const NAVY = '#24406a';
-const GREEN = '#2f5d4a';
+export const BORDER_LIMITS = {
+  inset: [8, 40, 0.5], thick: [0.2, 4, 0.1], gap: [0.5, 8, 0.1], thin: [0, 2, 0.05],
+  notch: [0, 15, 0.2], ornament: [0, 2, 0.05], pad: [2, 30, 0.5],
+};
 
-function keyPattern(id, color, size = 8, rotate = 0) {
-  const u = size / 8;
-  const d = `M${0.8 * u} ${7.2 * u} H${7.2 * u} V${0.8 * u} H${2.4 * u} V${5.6 * u} H${5.6 * u} V${2.4 * u} H${4 * u} V${4 * u}`;
-  return `<pattern id="${id}" width="${size}" height="${size}" patternUnits="userSpaceOnUse"${rotate ? ` patternTransform="rotate(${rotate})"` : ''}><path d="${d}" fill="none" stroke="${color}" stroke-width="${0.55 * u}" stroke-linecap="square"/></pattern>`;
-}
-
-function flower(cx, cy, r, color) {
-  let petals = '';
-  for (let i = 0; i < 5; i++) {
-    const a = (i * 72 - 90) * Math.PI / 180;
-    const px = cx + Math.cos(a) * r * 0.55;
-    const py = cy + Math.sin(a) * r * 0.55;
-    petals += `<ellipse cx="${px.toFixed(2)}" cy="${py.toFixed(2)}" rx="${(r * 0.5).toFixed(2)}" ry="${(r * 0.32).toFixed(2)}" transform="rotate(${i * 72} ${px.toFixed(2)} ${py.toFixed(2)})" fill="none" stroke="${color}" stroke-width="0.35"/>`;
+export function normBorder(b) {
+  const o = { ...BORDER_DEFAULT, ...(b || {}) };
+  for (const [k, [lo, hi]] of Object.entries(BORDER_LIMITS)) {
+    const v = Number(o[k]);
+    o[k] = Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : BORDER_DEFAULT[k];
   }
-  return `${petals}<circle cx="${cx}" cy="${cy}" r="${(r * 0.18).toFixed(2)}" fill="${color}"/>`;
+  if (!/^#[0-9a-f]{6}$/i.test(o.color)) o.color = BORDER_DEFAULT.color;
+  return o;
 }
 
-function classicSvg(w, h) {
-  const m = 13, b = 8; // 띠 시작, 띠 두께
-  const corners = [[m, m], [w - m - b, m], [m, h - m - b], [w - m - b, h - m - b]]
-    .map(([x, y]) => `<rect x="${x}" y="${y}" width="${b}" height="${b}" fill="#fbf8ef" stroke="${GOLD}" stroke-width="0.5"/>${flower(x + b / 2, y + b / 2, 3.2, GOLD)}`).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm">
-<defs>${keyPattern('kh', GOLD)}${keyPattern('kv', GOLD, 8, 90)}</defs>
-<rect width="${w}" height="${h}" fill="#fbf8ef"/>
-<rect x="${m - 2.5}" y="${m - 2.5}" width="${w - 2 * m + 5}" height="${h - 2 * m + 5}" fill="none" stroke="${GOLD}" stroke-width="1.1"/>
-<rect x="${m}" y="${m}" width="${w - 2 * m}" height="${b}" fill="url(#kh)"/>
-<rect x="${m}" y="${h - m - b}" width="${w - 2 * m}" height="${b}" fill="url(#kh)"/>
-<rect x="${m}" y="${m}" width="${b}" height="${h - 2 * m}" fill="url(#kv)"/>
-<rect x="${w - m - b}" y="${m}" width="${b}" height="${h - 2 * m}" fill="url(#kv)"/>
-<rect x="${m}" y="${m}" width="${w - 2 * m}" height="${h - 2 * m}" fill="none" stroke="${GOLD}" stroke-width="0.45"/>
-<rect x="${m + b}" y="${m + b}" width="${w - 2 * (m + b)}" height="${h - 2 * (m + b)}" fill="none" stroke="${GOLD}" stroke-width="0.45"/>
-<rect x="${m + b + 2}" y="${m + b + 2}" width="${w - 2 * (m + b + 2)}" height="${h - 2 * (m + b + 2)}" fill="none" stroke="${GOLD}" stroke-width="0.9"/>
-${corners}
-${flower(w / 2, m + b + 9, 4.2, GOLD)}
-</svg>`;
+/** 글을 놓을 수 있는 영역(가는 선 안쪽 + 여백) */
+export function contentRect(b, paper = PAPER) {
+  const B = normBorder(b);
+  const i = B.inset + B.gap + B.thin / 2 + B.pad;
+  return { x: i, y: i, w: paper.w - 2 * i, h: paper.h - 2 * i };
 }
 
-function simpleSvg(w, h) {
-  const m = 12;
-  const L = 16;
-  const br = (x, y, sx, sy) => `<path d="M${x} ${y + sy * L} V${y} H${x + sx * L}" fill="none" stroke="${NAVY}" stroke-width="1.4"/>`;
-  const i = m + 6;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm">
-<rect width="${w}" height="${h}" fill="#ffffff"/>
-<rect x="${m}" y="${m}" width="${w - 2 * m}" height="${h - 2 * m}" fill="none" stroke="${NAVY}" stroke-width="1.6"/>
-<rect x="${m + 2.2}" y="${m + 2.2}" width="${w - 2 * m - 4.4}" height="${h - 2 * m - 4.4}" fill="none" stroke="${NAVY}" stroke-width="0.4"/>
-${br(i, i, 1, 1)}${br(w - i, i, -1, 1)}${br(i, h - i, 1, -1)}${br(w - i, h - i, -1, -1)}
-<path d="M${w / 2 - 22} ${m + 20} H${w / 2 - 4} M${w / 2 + 4} ${m + 20} H${w / 2 + 22}" stroke="${NAVY}" stroke-width="0.4"/>
-<rect x="${w / 2 - 2}" y="${m + 18}" width="4" height="4" transform="rotate(45 ${w / 2} ${m + 20})" fill="${NAVY}"/>
-</svg>`;
+const n2 = v => Math.round(v * 1000) / 1000;
+
+// 모서리를 안으로 오목하게 판 사각형. 원의 중심은 굵은 선 꼭짓점.
+function concavePath(paper, m, inset, rad) {
+  const { w, h } = paper;
+  const off = inset - m;
+  const L = inset, T = inset, R = w - inset, B = h - inset;
+  const cl = m, ct = m, cr = w - m, cb = h - m;
+  if (rad <= off + 0.01) return `M${n2(L)} ${n2(T)} H${n2(R)} V${n2(B)} H${n2(L)} Z`;
+  const k = Math.sqrt(rad * rad - off * off);
+  return `M${n2(cl + k)} ${n2(T)} H${n2(cr - k)} A${n2(rad)} ${n2(rad)} 0 0 0 ${n2(R)} ${n2(ct + k)} V${n2(cb - k)} A${n2(rad)} ${n2(rad)} 0 0 0 ${n2(cr - k)} ${n2(B)} H${n2(cl + k)} A${n2(rad)} ${n2(rad)} 0 0 0 ${n2(L)} ${n2(cb - k)} V${n2(ct + k)} A${n2(rad)} ${n2(rad)} 0 0 0 ${n2(cl + k)} ${n2(T)} Z`;
 }
 
-function wideSvg(w, h) {
-  const m = 11;
-  const dots = [];
-  for (let x = m + 14; x <= w - m - 14; x += 6) dots.push(`<rect x="${x - 0.9}" y="${m + 6.1}" width="1.8" height="1.8" transform="rotate(45 ${x} ${m + 7})" fill="${GREEN}" opacity="0.55"/>`);
-  for (let x = m + 14; x <= w - m - 14; x += 6) dots.push(`<rect x="${x - 0.9}" y="${h - m - 7.9}" width="1.8" height="1.8" transform="rotate(45 ${x} ${h - m - 7})" fill="${GREEN}" opacity="0.55"/>`);
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm">
-<rect width="${w}" height="${h}" fill="#fcfbf6"/>
-<rect x="${m}" y="${m}" width="${w - 2 * m}" height="${h - 2 * m}" fill="none" stroke="${GREEN}" stroke-width="2.2"/>
-<rect x="${m + 3}" y="${m + 3}" width="${w - 2 * m - 6}" height="${h - 2 * m - 6}" fill="none" stroke="${GOLD}" stroke-width="0.5"/>
-<rect x="${m + 10}" y="${m + 10}" width="${w - 2 * m - 20}" height="${h - 2 * m - 20}" fill="none" stroke="${GOLD}" stroke-width="0.3"/>
-${dots.join('')}
-${flower(m + 5.5, m + 5.5, 3, GOLD)}${flower(w - m - 5.5, m + 5.5, 3, GOLD)}${flower(m + 5.5, h - m - 5.5, 3, GOLD)}${flower(w - m - 5.5, h - m - 5.5, 3, GOLD)}
-</svg>`;
-}
-
-
-// 많이 쓰는 시판 상장 용지 모양: 금색 이중 테두리, 오목한 모서리와 덩굴 장식 (A4, 테두리는 가장자리에서 약 21mm 안쪽)
-function goldFrameSvg(w, h) {
-  const m = 21, r = 5.2, gap = 2.3;
-  const concave = (inset, rad) => {
-    // 모서리를 안으로 오목하게 판 사각형 (원의 중심은 바깥 테두리 꼭짓점)
-    const off = inset - m;
-    const k = Math.sqrt(Math.max(rad * rad - off * off, 0));
-    const L = inset, T = inset, R = w - inset, B = h - inset;
-    const cl = m, ct = m, cr = w - m, cb = h - m;
-    return `M${cl + k} ${T} H${cr - k} A${rad} ${rad} 0 0 0 ${R} ${ct + k} V${cb - k} A${rad} ${rad} 0 0 0 ${cr - k} ${B} H${cl + k} A${rad} ${rad} 0 0 0 ${L} ${cb - k} V${ct + k} A${rad} ${rad} 0 0 0 ${cl + k} ${T} Z`;
-  };
-  // 오목한 모서리 끝에서 바깥으로 말려 나가는 덩굴 두 개 + 꼭짓점 점
-  const A = `M${r} 0 C${r - 1.8} 0 ${r - 3.6} -0.6 ${r - 4.3} -2.2 C${r - 4.9} -3.6 ${r - 3.8} -4.9 ${r - 2.5} -4.6 C${r - 1.3} -4.3 ${r - 1.2} -2.8 ${r - 2.2} -2.4 C${r - 2.9} -2.1 ${r - 3.5} -2.7 ${r - 3.2} -3.2`;
+// 모서리 덩굴: 왼쪽 위 모서리 기준(바깥이 -x,-y)으로 그린 뒤 뒤집어 네 모서리에 쓴다
+function ornamentPath(r, s) {
+  const p = (x, y) => `${n2(x * s)} ${n2(y * s)}`;
+  const R = Math.max(r / s, 3.2);
+  const A = `M${p(R, 0)} C${p(R - 1.8, 0)} ${p(R - 3.6, -0.6)} ${p(R - 4.3, -2.2)} C${p(R - 4.9, -3.6)} ${p(R - 3.8, -4.9)} ${p(R - 2.5, -4.6)} C${p(R - 1.3, -4.3)} ${p(R - 1.2, -2.8)} ${p(R - 2.2, -2.4)} C${p(R - 2.9, -2.1)} ${p(R - 3.5, -2.7)} ${p(R - 3.2, -3.2)}`;
   const B = A.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, '$2 $1');
-  const corner = (x, y, sx, sy) => `<g transform="translate(${x} ${y}) scale(${sx} ${sy})"><path d="${A} ${B}" fill="none" stroke="url(#gg)" stroke-width="0.65" stroke-linecap="round"/><circle cx="-0.9" cy="-0.9" r="0.6" fill="#d9a521"/></g>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm">
-<defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e9bf3c"/><stop offset=".45" stop-color="#f6dc7c"/><stop offset=".55" stop-color="#d9a521"/><stop offset="1" stop-color="#c38d17"/></linearGradient></defs>
-<rect width="${w}" height="${h}" fill="#fdfdfb"/>
-<path d="${concave(m, r)}" fill="none" stroke="url(#gg)" stroke-width="1.5"/>
-<path d="${concave(m + gap, r + gap)}" fill="none" stroke="#dcb04a" stroke-width="0.4"/>
-${corner(m, m, 1, 1)}${corner(w - m, m, -1, 1)}${corner(m, h - m, 1, -1)}${corner(w - m, h - m, -1, -1)}
-</svg>`;
+  return `${A} ${B}`;
 }
 
-// 칸 기본 서식
+function transformPath(d, tx, ty, sx, sy) {
+  // 절대 좌표(M/C/A 끝점) 쌍을 옮기고 뒤집는다. A 명령은 쓰지 않는 경로에만 사용.
+  return d.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, (m, x, y) => `${n2(tx + sx * Number(x))} ${n2(ty + sy * Number(y))}`);
+}
+
+function shade(hex, t) {
+  // t>0 이면 흰색 쪽으로 밝게
+  const v = hex.replace('#', '');
+  const c = [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16));
+  return '#' + c.map(x => Math.round(x + (255 - x) * t).toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * 테두리 도형 목록(mm, 위가 0). 미리보기 SVG와 PDF 벡터 출력이 같은 도형을 쓴다.
+ * { d, stroke, width, fill, cap, main }
+ */
+export function borderShapes(b, paper = PAPER) {
+  const B = normBorder(b);
+  const { w, h } = paper;
+  const m = B.inset;
+  const out = [];
+  out.push({ d: concavePath(paper, m, m, B.notch), stroke: B.color, width: B.thick, fill: null, main: true });
+  if (B.thin > 0) {
+    out.push({ d: concavePath(paper, m, m + B.gap, B.notch + B.gap), stroke: shade(B.color, 0.12), width: B.thin, fill: null });
+  }
+  if (B.ornament > 0) {
+    const s = B.ornament;
+    const base = ornamentPath(B.notch, s);
+    for (const [x, y, sx, sy] of [[m, m, 1, 1], [w - m, m, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]]) {
+      out.push({ d: transformPath(base, x, y, sx, sy), stroke: B.color, width: 0.65 * Math.max(0.6, s), fill: null, cap: 'round', main: true });
+      const r = 0.6 * s;
+      const cx = x - sx * 0.9 * s, cy = y - sy * 0.9 * s;
+      out.push({ d: `M${n2(cx - r)} ${n2(cy)} A${n2(r)} ${n2(r)} 0 1 0 ${n2(cx + r)} ${n2(cy)} A${n2(r)} ${n2(r)} 0 1 0 ${n2(cx - r)} ${n2(cy)} Z`, stroke: null, width: 0, fill: B.color });
+    }
+  }
+  return out;
+}
+
+/** 미리보기용 테두리 SVG(금박 느낌 그라데이션). guides=true 이면 글 영역을 점선으로 */
+export function borderSvg(b, { paper = PAPER, guides = false, bg = true } = {}) {
+  const B = normBorder(b);
+  const { w, h } = paper;
+  const grad = `<linearGradient id="gg" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${w}" y2="${h}">`
+    + `<stop offset="0" stop-color="${shade(B.color, 0.18)}"/><stop offset=".3" stop-color="${shade(B.color, 0.45)}"/>`
+    + `<stop offset=".5" stop-color="${B.color}"/><stop offset=".75" stop-color="${shade(B.color, 0.3)}"/><stop offset="1" stop-color="${B.color}"/></linearGradient>`;
+  const body = borderShapes(B, paper).map(s => s.fill
+    ? `<path d="${s.d}" fill="${s.fill}"/>`
+    : `<path d="${s.d}" fill="none" stroke="${s.main ? 'url(#gg)' : s.stroke}" stroke-width="${s.width}"${s.cap ? ' stroke-linecap="round"' : ''}/>`).join('');
+  let g = '';
+  if (guides) {
+    const c = contentRect(B, paper);
+    g = `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" fill="none" stroke="#7c5cf0" stroke-opacity=".6" stroke-width="0.3" stroke-dasharray="1.5 1"/>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm"><defs>${grad}</defs>${bg ? `<rect width="${w}" height="${h}" fill="#fdfdfb"/>` : ''}${body}${g}</svg>`;
+}
+
+// 칸 정의(글꼴·정렬 기본값). 위치·크기·글자 크기는 autolayout.js가 정한다.
 const base = {
   font: 'chosun-gs', bold: false, color: '#111111',
   align: 'left', valign: 'middle', lineHeight: 160, maxLines: 1,
   scale: 100, minScale: 80, spacing: 0, minSpacing: -8,
+  manual: false,
 };
 
 export const FIELD_DEFS = [
-  { id: 'number', label: '상장번호', text: '제 {{상장번호}} 호' },
-  { id: 'title', label: '상장명', text: '{{상장명}}' },
-  { id: 'affiliation', label: '소속', text: '{{소속}}' },
-  { id: 'name', label: '이름', text: '{{이름}}' },
-  { id: 'body', label: '내용', text: '{{내용}}' },
-  { id: 'date', label: '날짜', text: '{{날짜}}' },
-  { id: 'presenter', label: '수여자', text: '{{수여자}}' },
+  { id: 'number', label: '상장번호', text: '제 {{상장번호}} 호', align: 'left' },
+  { id: 'title', label: '상장명', text: '{{상장명}}', align: 'distribute' },
+  { id: 'affiliation', label: '소속', text: '{{소속}}', align: 'right' },
+  { id: 'name', label: '이름', text: '{{이름}}', align: 'right' },
+  { id: 'body', label: '내용', text: '{{내용}}', align: 'justify', valign: 'middle', lineHeight: 190, maxLines: 0 },
+  { id: 'date', label: '날짜', text: '{{날짜}}', align: 'center' },
+  { id: 'presenter', label: '수여자', text: '{{수여자}}', align: 'center' },
 ];
 
-function f(id, box, style) {
-  const def = FIELD_DEFS.find(d => d.id === id);
-  return { ...base, id, label: def.label, text: def.text, ...box, ...style };
-}
-
-export const PAPERS = [
-  {
-    id: 'gold', name: '금색 테두리 (시판 기본형)', size: 'A4P', svg: goldFrameSvg, inset: 28,
-    fields: [
-      f('number', { x: 31, y: 32, w: 62, h: 8 }, { size: 11, minSize: 8 }),
-      f('title', { x: 52, y: 50, w: 106, h: 28 }, { size: 46, minSize: 28, align: 'distribute' }),
-      f('affiliation', { x: 96, y: 92, w: 83, h: 9 }, { size: 15, minSize: 10, align: 'right' }),
-      f('name', { x: 96, y: 103, w: 83, h: 13 }, { size: 21, minSize: 13, align: 'right' }),
-      f('body', { x: 33, y: 128, w: 144, h: 82 }, { size: 18, minSize: 12, align: 'justify', valign: 'top', lineHeight: 200, maxLines: 0 }),
-      f('date', { x: 33, y: 220, w: 144, h: 10 }, { size: 16, minSize: 11, align: 'center' }),
-      f('presenter', { x: 33, y: 242, w: 144, h: 15 }, { size: 23, minSize: 14, align: 'center' }),
-    ],
-    stamp: { size: 21, dx: -5, dy: 0 },
-  },
-  {
-    id: 'classic', name: '전통 문양', size: 'A4P', svg: classicSvg, inset: 26,
-    fields: [
-      f('number', { x: 30, y: 30, w: 62, h: 8 }, { size: 11, minSize: 8 }),
-      f('title', { x: 52, y: 50, w: 106, h: 28 }, { size: 46, minSize: 28, align: 'distribute' }),
-      f('affiliation', { x: 96, y: 92, w: 82, h: 9 }, { size: 15, minSize: 10, align: 'right' }),
-      f('name', { x: 96, y: 103, w: 82, h: 13 }, { size: 21, minSize: 13, align: 'right' }),
-      f('body', { x: 33, y: 128, w: 144, h: 80 }, { size: 18, minSize: 12, align: 'justify', valign: 'top', lineHeight: 200, maxLines: 0 }),
-      f('date', { x: 33, y: 218, w: 144, h: 10 }, { size: 16, minSize: 11, align: 'center' }),
-      f('presenter', { x: 33, y: 240, w: 144, h: 15 }, { size: 23, minSize: 14, align: 'center' }),
-    ],
-    stamp: { size: 21, dx: -5, dy: 0 },
-  },
-  {
-    id: 'simple', name: '단정한 이중선', size: 'A4P', svg: simpleSvg, inset: 24,
-    fields: [
-      f('number', { x: 26, y: 24, w: 80, h: 8 }, { size: 11, minSize: 8 }),
-      f('title', { x: 50, y: 42, w: 110, h: 30 }, { size: 48, minSize: 28, align: 'distribute' }),
-      f('affiliation', { x: 92, y: 88, w: 90, h: 9 }, { size: 15, minSize: 10, align: 'right' }),
-      f('name', { x: 92, y: 99, w: 90, h: 13 }, { size: 21, minSize: 13, align: 'right' }),
-      f('body', { x: 30, y: 124, w: 150, h: 86 }, { size: 18, minSize: 12, align: 'justify', valign: 'top', lineHeight: 200, maxLines: 0 }),
-      f('date', { x: 30, y: 222, w: 150, h: 10 }, { size: 16, minSize: 11, align: 'center' }),
-      f('presenter', { x: 30, y: 244, w: 150, h: 15 }, { size: 23, minSize: 14, align: 'center' }),
-    ],
-    stamp: { size: 21, dx: -5, dy: 0 },
-  },
-  {
-    id: 'wide', name: '가로형 감사장', size: 'A4L', svg: wideSvg, inset: 26,
-    fields: [
-      f('number', { x: 28, y: 26, w: 90, h: 8 }, { size: 11, minSize: 8 }),
-      f('title', { x: 98, y: 32, w: 101, h: 24 }, { size: 40, minSize: 24, align: 'distribute' }),
-      f('affiliation', { x: 172, y: 64, w: 96, h: 9 }, { size: 15, minSize: 10, align: 'right' }),
-      f('name', { x: 172, y: 74, w: 96, h: 12 }, { size: 20, minSize: 12, align: 'right' }),
-      f('body', { x: 40, y: 94, w: 217, h: 52 }, { size: 17, minSize: 11, align: 'justify', valign: 'top', lineHeight: 190, maxLines: 0 }),
-      f('date', { x: 40, y: 152, w: 217, h: 9 }, { size: 15, minSize: 10, align: 'center' }),
-      f('presenter', { x: 40, y: 166, w: 217, h: 13 }, { size: 21, minSize: 13, align: 'center' }),
-    ],
-    stamp: { size: 19, dx: -5, dy: 0 },
-  },
-];
-
-export function paperById(id) { return PAPERS.find(p => p.id === id) || PAPERS[0]; }
-
-export function paperBackgroundSvg(paper) {
-  const s = SIZES[paper.size];
-  return paper.svg(s.w, s.h);
+export function defaultFields() {
+  // 자리값은 자동 배치가 곧바로 채운다
+  return FIELD_DEFS.map(d => ({ ...base, ...d, x: 30, y: 30, w: 100, h: 10, size: 16, minSize: 12 }));
 }
 
 export const SAMPLE = {

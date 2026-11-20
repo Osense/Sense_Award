@@ -20,10 +20,13 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
 
 /**
  * opts: { JSZip, template: {path: string|Uint8Array}, doc, store, indices, paper:{w,h,orient},
- *         offset, stampPng: Uint8Array|null, stampPx:{w,h} }
+ *         offset, scale(배율 보정, 1=그대로), stampPng: Uint8Array|null, stampPx:{w,h} }
  */
 export async function buildHwpx(opts) {
-  const { JSZip, template, doc, store, indices, paper, offset = { x: 0, y: 0 }, stampPng, stampPx } = opts;
+  const { JSZip, template, doc, store, indices, paper, offset = { x: 0, y: 0 }, scale: k = 1, stampPng, stampPx } = opts;
+  // 배율 보정은 용지 가운데 기준, 위치 보정은 그다음
+  const PX = x => paper.w / 2 + (x - paper.w / 2) * k + offset.x;
+  const PY = y => paper.h / 2 + (y - paper.h / 2) * k + offset.y;
   let header = template['Contents/header.xml'];
   let section = template['Contents/section0.xml'];
   let hpf = template['Contents/content.hpf'];
@@ -97,7 +100,7 @@ export async function buildHwpx(opts) {
       if (res.overflow) warnings.push({ index: idx, field: res.field.label });
       const f = res.field;
       const face = fontInfo(f.font).hwpFace;
-      const cId = charPrId(face, res.sizePt, res.scale, res.spacing, f.bold, (f.color || '#111111').toUpperCase());
+      const cId = charPrId(face, res.sizePt * k, res.scale, res.spacing, f.bold, (f.color || '#111111').toUpperCase());
       const pId = paraPrId(f.align, f.lineHeight);
       const text = res.lines.map(l => esc(l.text)).join('<hp:lineBreak/>');
       if (!text.replace(/<hp:lineBreak\/>/g, '').trim()) continue;
@@ -111,13 +114,13 @@ export async function buildHwpx(opts) {
       if (h > f.h) y -= (h - f.h) / 2;
       const vAlign = f.valign === 'top' ? 'TOP' : f.valign === 'bottom' ? 'BOTTOM' : 'CENTER';
       objs.push(rectXml({
-        id: nextId(), z: z++, x: x + offset.x, y: y + offset.y, w, h, vAlign,
+        id: nextId(), z: z++, x: PX(x), y: PY(y), w: w * k, h: h * k, vAlign,
         para: `<hp:p id="0" paraPrIDRef="${pId}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="${cId}"><hp:t>${text}</hp:t></hp:run></hp:p>`,
       }));
     }
     if (rec.stamp && stampPng) {
       const s = rec.stamp;
-      objs.push(picXml({ id: nextId(), z: z++, x: s.x + offset.x, y: s.y + offset.y, w: s.w, h: s.h, px: stampPx }));
+      objs.push(picXml({ id: nextId(), z: z++, x: PX(s.x), y: PY(s.y), w: s.w * k, h: s.h * k, px: stampPx }));
     }
     pages.push(objs);
   }
