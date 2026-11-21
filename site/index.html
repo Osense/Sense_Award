@@ -267,6 +267,8 @@
             <button class="small" id="markFit" title="확대·이동을 처음 상태로">맞춤 처음대로</button>
             <button class="small ghost" id="markClearImg">그림 빼기</button>
           </div>
+          <label class="check"><input type="checkbox" id="markBg"> 배경 지우기 (흰 종이·JPG 로고·인장)</label>
+          <label class="lbl bg-str" id="markBgRow" hidden>지우는 정도 <input type="range" id="markBgStr" min="0" max="100" step="1"><span id="markBgStrV">50</span></label>
           <label class="lbl mark-zoom">틀 안 그림 확대 <input type="range" id="markZoom" min="100" max="600" step="1"><span id="markZoomV"></span></label>
           <div class="row four">
             <label class="lbl">가로<input type="number" id="markX" step="0.5"></label>
@@ -281,13 +283,14 @@
       </div>
       <div class="pop" id="pop-stamp" hidden>
         <h4>수여자 도장</h4>
-        <p class="hint">도장 이미지를 올리면 수여자 끝 글자에 걸치게 찍혀요.</p>
+        <p class="hint">도장 이미지를 올리면 수여자 마지막 어절의 절반쯤에 걸치게 찍혀요. 휴대폰으로 찍은 JPG도 종이 배경을 지우고 인주만 남겨요.</p>
         <div class="row">
           <label class="file-btn">도장 이미지 올리기<input type="file" id="stampFile" accept="image/*"></label>
           <button class="ghost small" id="stampClear" hidden>도장 지우기</button>
         </div>
         <div class="stamp-preview" id="stampPreview" hidden></div>
-        <label class="check"><input type="checkbox" id="stampWhite" checked> 흰 바탕 투명하게</label>
+        <label class="check"><input type="checkbox" id="stampWhite" checked> 배경 지우기 (JPG·사진도 자동)</label>
+        <label class="lbl bg-str" id="stampBgRow">지우는 정도 <input type="range" id="stampBgStr" min="0" max="100" step="1"><span id="stampBgStrV">50</span></label>
         <label class="check"><input type="checkbox" id="stampRed"> 붉은색으로 맞추기</label>
         <div class="row three">
           <label class="lbl">크기(mm)<input type="number" id="stampSize" step="0.5" min="5"></label>

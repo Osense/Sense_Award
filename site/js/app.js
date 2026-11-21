@@ -9,6 +9,7 @@ import { subsetFont } from './subset.js';
 import { Sheet } from './sheet.js';
 import { TEMPLATES, tpl, fieldsFor } from './templates.js';
 import { MARK_SHAPES, newMark, markSvg, markPath, clampMark, bakeMark } from './marks.js';
+import { removeBackground, hasTransparency } from './bgremove.js';
 
 const hbWasm = () => fetch('vendor/harfbuzz-subset.wasm').then(r => { if (!r.ok) throw new Error('subset wasm'); return r.arrayBuffer(); });
 const subsetFn = (bytes, cps) => subsetFont(hbWasm, bytes, cps);
@@ -39,7 +40,7 @@ function freshState(templateId = 'kr') {
     offset: { x: 0, y: 0 },
     measured: 100,
     // 한국 상장은 도장 틀을 미리 넣어 둔다(수여자 끝 글자에 걸치는 자리, 눌러서 도장 그림 넣기)
-    stamp: { enabled: !!T.stamp, src: null, png: null, imgW: 0, imgH: 0, white: true, red: false, size: 20, dx: -5, dy: 0, manual: false },
+    stamp: { enabled: !!T.stamp, src: null, png: null, imgW: 0, imgH: 0, white: true, bgStrength: 50, red: false, size: 20, dx: 0, dy: 0, manual: false, anchor: 'word-half' },
     showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: T.bgInPdf, colWidths: {},
     dataMode: 'paste', selected: null, sel: [], snap: true,
     layoutVersion: LAYOUT_VERSION,
@@ -58,6 +59,11 @@ function hydrate(raw) {
     const st = { ...freshState(s.template || 'kr'), ...s, step: 1, current: 0, selected: null, sel: [], zoom: 'fit', dataMode: 'paste' };
     st.template = TEMPLATES[st.template] ? st.template : 'kr';
     st.marks = Array.isArray(st.marks) ? st.marks : [];
+    // 도장 자리 규칙이 '끝 글자 오른쪽'에서 '마지막 어절 절반'으로 바뀜 → 예전 기본 위치값은 0으로
+    if (st.stamp && st.stamp.anchor !== 'word-half') {
+      if (st.stamp.dx === -5 && !st.stamp.dy) st.stamp.dx = 0;
+      st.stamp.anchor = 'word-half';
+    }
     st.border = normBorder(st.border);
     // 배치 규칙이 바뀌었으면(참고 상장 비율 적용) 칸 기본 서식을 맞추고 자동 배치로 되돌린다
     if ((st.layoutVersion || 1) < LAYOUT_VERSION) {
@@ -95,7 +101,7 @@ function persist() {
   catch {
     // 이미지가 커서 못 담으면 이미지만 빼고 저장
     try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false } })); } catch {
-      try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false }, marks: state.marks.map(m => ({ ...m, src: null })) })); } catch {}
+      try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false }, marks: state.marks.map(m => ({ ...m, src: null, orig: null })) })); } catch {}
     }
     setStatus('저장 공간이 모자라 그림 일부를 빼고 저장했어요. 쓰지 않는 프로젝트를 지워 주세요.', 'warn');
   }
@@ -281,7 +287,7 @@ function snapshot() {
   for (const k of HIST_KEYS) {
     // 도장 그림(용량이 큼)은 기록에서 빼고 참조만 남긴다
     o[k] = k === 'stamp' ? { ...state.stamp, src: undefined, png: undefined, _img: stampImages(state.stamp) }
-      : k === 'marks' ? state.marks.map(m => ({ ...m, src: undefined, _img: imgRef(m.src) }))
+      : k === 'marks' ? state.marks.map(m => ({ ...m, src: undefined, orig: undefined, _img: imgRef(m.src), _orig: imgRef(m.orig) }))
       : clone(state[k]);
   }
   return o;
@@ -334,7 +340,10 @@ function restore(snap) {
       const img = snap.stamp._img ? stampImgs.get(snap.stamp._img) : null;
       state.stamp = { ...clone({ ...snap.stamp, _img: undefined }), src: img ? img.src : null, png: img ? img.png : null };
     } else if (k === 'marks') {
-      state.marks = (snap.marks || []).map(m => { const im = m._img ? stampImgs.get(m._img) : null; return { ...clone({ ...m, _img: undefined }), src: im ? im.src : null }; });
+      state.marks = (snap.marks || []).map(m => {
+        const im = m._img ? stampImgs.get(m._img) : null, og = m._orig ? stampImgs.get(m._orig) : null;
+        return { ...clone({ ...m, _img: undefined, _orig: undefined }), src: im ? im.src : null, orig: og ? og.src : null };
+      });
       if (markSel && !state.marks.some(m => m.id === markSel)) { markSel = null; cropId = null; }
     } else state[k] = clone(snap[k]);
   }
@@ -717,6 +726,9 @@ function renderStampCard() {
   $('#stampPreview').hidden = !s.png;
   $('#stampPreview').innerHTML = s.png ? `<img src="${s.png}" alt="도장 미리보기">` : '';
   $('#stampWhite').checked = !!s.white;
+  $('#stampBgRow').hidden = !s.white || !s.src;
+  $('#stampBgStr').value = s.bgStrength ?? 50;
+  $('#stampBgStrV').textContent = s.bgStrength ?? 50;
   $('#stampRed').checked = !!s.red;
   $('#stampSize').value = s.size;
   $('#stampDx').value = s.dx;
@@ -747,43 +759,17 @@ function loadImage(src) {
 async function processStamp() {
   const s = state.stamp;
   if (!s.src) { s.png = null; s.enabled = false; return; }
-  const im = await loadImage(s.src);
-  const maxSide = 800;
-  const k = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
-  const w = Math.round(im.naturalWidth * k), h = Math.round(im.naturalHeight * k);
-  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-  const cx = cv.getContext('2d');
-  cx.drawImage(im, 0, 0, w, h);
-  const data = cx.getImageData(0, 0, w, h);
-  const p = data.data;
-  let minX = w, minY = h, maxX = -1, maxY = -1;
-  for (let i = 0; i < p.length; i += 4) {
-    const r = p[i], g = p[i + 1], b = p[i + 2];
-    let a = p[i + 3];
-    if (s.white) {
-      // 밝을수록 투명하게(가장자리는 부드럽게)
-      const light = Math.min(r, g, b);
-      const t = Math.max(0, Math.min(1, (235 - light) / 60));
-      a = Math.round(a * t);
-    }
-    if (s.red && a > 0) {
-      const dark = 1 - (r + g + b) / 765;
-      p[i] = 200; p[i + 1] = 28; p[i + 2] = 36;
-      if (!s.white) a = Math.round(a * Math.min(1, dark * 1.6));
-    }
-    p[i + 3] = a;
-    if (a > 16) {
-      const x = (i / 4) % w, y = Math.floor(i / 4 / w);
-      if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
-    }
+  const red = s.red ? [200, 28, 36] : null;
+  let out;
+  if (s.white && !(await hasTransparency(s.src))) {
+    // JPG·사진: 종이 얼룩까지 펴서 배경을 지우고 잉크만 남긴다
+    out = await removeBackground(s.src, { strength: s.bgStrength ?? 50, recolor: red, maxSide: 800 });
+  } else {
+    // 이미 투명한 PNG거나 지우기를 끈 경우: 그대로(붉은색 맞추기만)
+    out = await removeBackground(s.src, { strength: 0, recolor: red, maxSide: 800, keepAll: true });
   }
-  cx.putImageData(data, 0, 0);
-  if (maxX < 0) { minX = 0; minY = 0; maxX = w - 1; maxY = h - 1; }
-  const tw = maxX - minX + 1, th = maxY - minY + 1;
-  const out = document.createElement('canvas'); out.width = tw; out.height = th;
-  out.getContext('2d').drawImage(cv, minX, minY, tw, th, 0, 0, tw, th);
-  s.png = out.toDataURL('image/png');
-  s.imgW = tw; s.imgH = th;
+  s.png = out.png;
+  s.imgW = out.w; s.imgH = out.h;
   s.enabled = true;
 }
 
@@ -1139,6 +1125,11 @@ function renderMarkPop() {
   $('#markZoomV').textContent = `${Math.round((m.zoom || 1) * 100)}%`;
   for (const k of ['x', 'y', 'w', 'h']) { const el = $(`#mark${k.toUpperCase()}`); if (el !== document.activeElement) el.value = Math.round(m[k] * 10) / 10; }
   $('#markH').disabled = m.shape === 'circle';
+  $('#markBg').disabled = !m.src;
+  $('#markBg').checked = !!m.bgOn;
+  $('#markBgRow').hidden = !m.bgOn;
+  $('#markBgStr').value = m.bgStrength ?? 50;
+  $('#markBgStrV').textContent = m.bgStrength ?? 50;
 }
 function addMark(shape) {
   const C = contentRect(state.border);
@@ -1164,9 +1155,22 @@ async function setMarkImage(id, file) {
   const im2 = await loadImage(m.src);
   m.imgW = im2.naturalWidth; m.imgH = im2.naturalHeight;
   m.zoom = 1; m.panX = 0; m.panY = 0;
+  m.orig = null; m.bgOn = false;
   clampMark(m);
   selectMark(id);
   commitNow(); refresh();
+}
+// 마크 그림 배경 지우기(원본은 m.orig에 두고 다시 계산)
+async function applyMarkBg(m) {
+  if (!m.src && !m.orig) return;
+  if (m.bgOn) {
+    if (!m.orig) m.orig = m.src;
+    const r = await removeBackground(m.orig, { strength: m.bgStrength ?? 50, trim: false, maxSide: 1600 });
+    m.src = r.png; m.imgW = r.w; m.imgH = r.h;
+  } else if (m.orig) {
+    m.src = m.orig; m.orig = null;
+  }
+  clampMark(m); renderMarkPop(); commitNow(); refresh();
 }
 function pickMarkImage(id) {
   markUploadId = id;
@@ -1753,7 +1757,7 @@ function bind() {
     if (e.target.closest('#markPick')) { pickMarkImage(m.id); return; }
     if (e.target.closest('#markCrop')) { cropId = cropId === m.id ? null : m.id; renderMarkPop(); refresh(); return; }
     if (e.target.closest('#markFit')) { m.zoom = 1; m.panX = 0; m.panY = 0; renderMarkPop(); commitNow(); refresh(); return; }
-    if (e.target.closest('#markClearImg')) { m.src = null; m.imgW = 0; m.imgH = 0; cropId = null; clampMark(m); renderMarkPop(); commitNow(); refresh(); return; }
+    if (e.target.closest('#markClearImg')) { m.src = null; m.orig = null; m.bgOn = false; m.imgW = 0; m.imgH = 0; cropId = null; clampMark(m); renderMarkPop(); commitNow(); refresh(); return; }
     if (e.target.closest('#markDel')) { removeMark(m.id); }
   });
   $('#pop-mark').addEventListener('input', e => {
@@ -1769,6 +1773,13 @@ function bind() {
       if (m.shape === 'circle' && k === 'w') m.h = v;
       clampMark(m); refresh(); save();
     }
+  });
+  $('#markBg').addEventListener('change', e => { const m = markSel ? markById(markSel) : null; if (!m) return; m.bgOn = e.target.checked; applyMarkBg(m); });
+  let markBgTimer = 0;
+  $('#markBgStr').addEventListener('input', e => {
+    const m = markSel ? markById(markSel) : null; if (!m) return;
+    m.bgStrength = Number(e.target.value); $('#markBgStrV').textContent = e.target.value;
+    clearTimeout(markBgTimer); markBgTimer = setTimeout(() => applyMarkBg(m), 120);
   });
   $('#markFile').addEventListener('change', e => { const f = e.target.files[0]; if (f && markUploadId) setMarkImage(markUploadId, f); });
 
@@ -1937,6 +1948,13 @@ function bind() {
   $('#stampClear').addEventListener('click', async () => { state.stamp.src = null; await processStamp(); renderStampCard(); refresh(); });
   $('#stampWhite').addEventListener('change', async e => { state.stamp.white = e.target.checked; await processStamp(); renderStampCard(); refresh(); });
   $('#stampRed').addEventListener('change', async e => { state.stamp.red = e.target.checked; await processStamp(); renderStampCard(); refresh(); });
+  let bgTimer = 0;
+  $('#stampBgStr').addEventListener('input', e => {
+    state.stamp.bgStrength = Number(e.target.value);
+    $('#stampBgStrV').textContent = e.target.value;
+    clearTimeout(bgTimer);
+    bgTimer = setTimeout(async () => { await processStamp(); renderStampCard(); refresh(); }, 120);
+  });
   for (const [id, prop] of [['stampSize', 'size'], ['stampDx', 'dx'], ['stampDy', 'dy']]) {
     $(`#${id}`).addEventListener('input', e => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) { state.stamp[prop] = v; if (prop === 'size') state.stamp.manual = true; refresh(); } });
   }

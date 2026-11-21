@@ -618,3 +618,6 @@ body[data-step="0"] .step-tabs, body[data-step="0"] .hist, body[data-step="0"] #
 .proj-thumb.tpl-us .t { top: 25%; font-size: 17px; letter-spacing: 0; }
 .proj-thumb.tpl-us .n { left: 0; right: 0; top: 38%; text-align: center; font-size: 15px; letter-spacing: 0; }
 .proj-new.tpl-card .proj-thumb .plus { font-family: system-ui, sans-serif; }
+.bg-str { display: grid; grid-template-columns: auto 1fr 28px; align-items: center; gap: 8px; margin: 4px 0 8px 24px; font-size: 12.5px; }
+.bg-str span { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.stamp-preview img, .mark-pop-prev img { background: repeating-conic-gradient(#e9e9ef 0 25%, #fff 0 50%) 0 0 / 10px 10px; }
