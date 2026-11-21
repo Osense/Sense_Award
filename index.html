@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>쎈스 어워드 — 상장 일괄 생성 | WSNS studio</title>
+<meta name="description" content="엑셀 명단을 붙여 넣으면 상장 용지에 맞춰 글자 크기·장평·자간을 자동으로 맞추고, PDF와 한글(HWPX)로 한 번에 만드는 WSNS studio 웹앱. 데이터는 내 기기 안에서만 처리돼요.">
+<meta name="theme-color" content="#7C5CF0">
+<link rel="icon" type="image/svg+xml" href="brand/wsns-mark.svg">
+<link rel="stylesheet" href="fonts/ui/pretendard/pretendardvariable-dynamic-subset.css">
+<link rel="stylesheet" href="style.css">
+<script>try{if(localStorage.getItem('sense-award:theme')==='dark')document.documentElement.dataset.theme='dark'}catch{}</script>
+</head>
+<body>
+<header class="top">
+  <div class="wordmark">
+    <a class="mark-link" href="https://wsns.studio/" target="_blank" rel="noopener" title="WSNS studio 홈페이지" aria-label="WSNS studio 홈페이지"><img class="mark" src="brand/wsns-mark.svg" alt="" width="166" height="212" draggable="false"></a>
+    <button class="bn" id="homeBtn" title="처음 화면(프로젝트 목록)으로">
+      <b>쎈스 어워드</b>
+      <small class="pron"><span class="pn-en">WSNS studio</span> <span class="pn-k">[웨스엔에스 스튜디오]</span></small>
+    </button>
+  </div>
+  <nav class="step-tabs" id="stepTabs" aria-label="작업 단계">
+    <button class="tab-home" id="tabHome" title="처음 화면(프로젝트 목록)으로"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>프로젝트</button>
+    <span class="tab-sep" aria-hidden="true"></span>
+    <button data-step="1"><span class="n">1</span>용지</button>
+    <button data-step="2"><span class="n">2</span>명단</button>
+    <button data-step="3"><span class="n">3</span>문구·배치</button>
+    <button data-step="4"><span class="n">4</span>확인·내보내기</button>
+  </nav>
+  <div class="top-actions">
+    <button class="proj-label" id="projLabel"></button>
+    <button class="ghost hist" id="undoBtn" title="되돌리기 (Ctrl+Z)" disabled><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3 2 6l3 3"/><path d="M2 6h7.5a4 4 0 0 1 0 8H6"/></svg>되돌리기</button>
+    <button class="ghost hist" id="redoBtn" title="다시 하기 (Ctrl+Shift+Z 또는 Ctrl+Y)" disabled><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="m11 3 3 3-3 3"/><path d="M14 6H6.5a4 4 0 0 0 0 8H10"/></svg>다시 하기</button>
+    <span class="top-sep"></span>
+    <button class="ghost" id="resetBtn" title="처음 상태로 되돌리기">초기화</button>
+    <button class="ghost" id="themeBtn">어둡게</button>
+  </div>
+</header>
+
+<main class="pages">
+  <!-- 0. 프로젝트 목록(처음 화면) -->
+  <section class="page" data-step="0">
+    <div class="page-scroll">
+      <div class="page-head">
+        <small>프로젝트</small>
+        <h1>상장 프로젝트</h1>
+        <p>상장 묶음마다 프로젝트를 하나씩 만들어요. 용지·명단·문구·배치·도장이 프로젝트별로 이 기기(브라우저)에 저장돼요. 새 프로젝트는 늘 견본 상태에서 시작하고, 복제하면 같은 설정으로 다른 명단을 만들 수 있어요.</p>
+      </div>
+      <div class="proj-grid" id="projGrid"></div>
+      <p class="hint" id="projEmpty">아직 만든 프로젝트가 없어요. 새 프로젝트로 시작하세요.</p>
+    </div>
+  </section>
+
+  <!-- 1. 용지 -->
+  <section class="page" data-step="1">
+    <div class="paper-page">
+      <div class="paper-stage" id="borderStage"><div class="paper-sheet" id="borderView"></div></div>
+      <aside class="paper-side">
+        <div class="page-head compact">
+          <small>1단계</small>
+          <h1>상장 용지</h1>
+          <p class="lead" id="paperLead">이 용지는 시판되는 보통 상장 용지 규격(A4, 210×297mm)을 따릅니다. 금색 테두리는 화면에서만 보이는 안내선이라 인쇄에는 들어가지 않아요.</p>
+          <p class="lead"><b>테두리를 조정하려면 아래의 수치를 조정하세요.</b> 갖고 있는 상장 용지의 테두리를 자로 재서 맞추면, 다음 단계에서 그 테두리를 배경으로 글이 자동 배치돼요.</p>
+        </div>
+        <div class="reset-all">
+          <button class="small" id="borderReset">견본 디자인으로 전체 초기화</button>
+          <span class="hint" id="borderNote"></span>
+        </div>
+        <div class="card bcard">
+          <h3>테두리 위치와 모양</h3>
+          <div class="bctl" data-bkey="inset">
+            <div class="bctl-head"><label for="b-inset">테두리 위치</label><span class="hint">용지 가장자리 → 굵은 선</span><button class="reset-one" data-reset="inset" title="이 항목만 견본 값으로">기본값</button></div>
+            <div class="bctl-in"><input type="range" data-b="inset" aria-label="테두리 위치"><span class="num"><input type="number" id="b-inset" data-b="inset"><em>mm</em></span></div>
+          </div>
+          <div class="bctl" data-bkey="thick">
+            <div class="bctl-head"><label for="b-thick">굵은 선 두께</label><button class="reset-one" data-reset="thick" title="이 항목만 견본 값으로">기본값</button></div>
+            <div class="bctl-in"><input type="range" data-b="thick" aria-label="굵은 선 두께"><span class="num"><input type="number" id="b-thick" data-b="thick"><em>mm</em></span></div>
+          </div>
+          <div class="bctl" data-bkey="gap">
+            <div class="bctl-head"><label for="b-gap">두 선 사이 간격</label><span class="hint">굵은 선 → 가는 선</span><button class="reset-one" data-reset="gap" title="이 항목만 견본 값으로">기본값</button></div>
+            <div class="bctl-in"><input type="range" data-b="gap" aria-label="두 선 사이 간격"><span class="num"><input type="number" id="b-gap" data-b="gap"><em>mm</em></span></div>
+          </div>
+          <div class="bctl" data-bkey="thin">
+            <div class="bctl-head"><label for="b-thin">가는 선 두께</label><span class="hint">0이면 없음</span><button class="reset-one" data-reset="thin" title="이 항목만 견본 값으로">기본값</button></div>
+            <div class="bctl-in"><input type="range" data-b="thin" aria-label="가는 선 두께"><span class="num"><input type="number" id="b-thin" data-b="thin"><em>mm</em></span></div>
+          </div>
+          <div class="bctl" data-bkey="notch">
+            <div class="bctl-head"><label for="b-notch">모서리 오목한 크기</label><span class="hint">0이면 직각</span><button class="reset-one" data-reset="notch" title="이 항목만 견본 값으로">기본값</button></div>
+            <div class="bctl-in"><input type="range" data-b="notch" aria-label="모서리 오목한 크기"><span class="num"><input type="number" id="b-notch" data-b="notch"><em>mm</em></span></div>
+          </div>
+
+          <div class="bctl color" data-bkey="color"><div class="bctl-head"><label for="b-color">테두리 색</label><button class="reset-one" data-reset="color" title="이 항목만 견본 값으로">기본값</button></div><div class="bctl-in"><input type="color" id="b-color" data-b="color"></div></div>
+        </div>
+        <div class="card bcard">
+          <div class="card-head">
+            <h3>모서리 장식</h3>
+            <label class="switch" title="모서리 장식 켜기·끄기"><input type="checkbox" id="b-ornOn"><span class="track"><span class="knob"></span></span><span class="sw-label" id="ornOnLabel">꺼짐</span></label>
+          </div>
+          <div class="orn-body" id="ornBody" hidden>
+            <div class="bctl" data-bkey="ornType">
+              <div class="bctl-head"><label>종류</label><button class="reset-one" data-reset="ornType" title="이 항목만 견본 값으로">기본값</button></div>
+              <div class="seg orn-types" id="ornTypes"></div>
+            </div>
+          <div class="bctl" data-bkey="ornament">
+            <div class="bctl-head"><label for="b-ornament">장식 크기</label><button class="reset-one" data-reset="ornament" title="이 항목만 견본 값으로">기본값</button></div>
+            <div class="bctl-in"><input type="range" data-b="ornament" aria-label="장식 크기"><span class="num"><input type="number" id="b-ornament" data-b="ornament"><em>배</em></span></div>
+          </div>
+          </div>
+        </div>
+        <div class="card bcard">
+          <h3>글 영역</h3>
+          <p class="hint">보라색 점선이 글이 놓이는 영역이에요. 영역을 줄이면 안쪽 글 상자도 함께 오므라들어요(직접 옮긴 상자도 같은 비율로).</p>
+          <div class="bctl" data-bkey="pad">
+            <div class="bctl-head"><label for="b-pad">테두리 안쪽 여백</label><span class="hint">가는 선 → 글 영역</span><button class="reset-one" data-reset="pad" title="이 항목만 견본 값으로">기본값</button></div>
+            <div class="bctl-in"><input type="range" data-b="pad" aria-label="테두리 안쪽 여백"><span class="num"><input type="number" id="b-pad" data-b="pad"><em>mm</em></span></div>
+          </div>
+
+        </div>
+      </aside>
+    </div>
+    <div class="page-foot"><span></span><button class="primary" data-goto="2">다음: 명단 넣기</button></div>
+  </section>
+
+  <!-- 2. 명단 -->
+  <section class="page" data-step="2">
+    <div class="page-scroll">
+      <div class="page-head row-head">
+        <div>
+          <small>2단계</small>
+          <h1>받는 사람 명단을 넣어 주세요</h1>
+          <p>엑셀에서 제목 줄까지 함께 복사해 붙여 넣으면, 제목이 변수 이름(키)이 되어 상장 문구에 들어가요.</p>
+        </div>
+        <div class="seg big" role="tablist">
+          <button data-mode="paste" class="on">표로 넣기</button>
+          <button data-mode="direct">한 장씩 입력</button>
+        </div>
+      </div>
+
+      <div class="mode" data-mode="paste">
+        <div class="sheet-bar">
+          <p class="sheet-tips"><b>엑셀처럼 쓰세요.</b> 칸을 누르고 Ctrl+V로 붙여 넣으면 그 자리부터 채워져요. 엑셀에서 제목 줄까지 복사했다면 맨 위 <b>항목</b> 줄의 첫 칸(A)에 붙여 넣으면 표 전체가 바뀌어요.<br>끌어서 여러 칸 고르기 · 그냥 치면 입력, F2나 두 번 눌러 고치기 · Delete 지우기 · 오른쪽 클릭으로 줄·항목 넣기·삭제 · 고른 칸 오른쪽 아래 점을 끌면 채우기</p>
+          <div class="sheet-actions">
+            <button class="small" id="addRow">줄 추가</button>
+            <button class="small" id="addCol">항목 추가</button>
+            <span class="count" id="rowCount"></span>
+          </div>
+        </div>
+        <div class="card warn" id="mapCard" hidden>
+          <h3>문구의 변수를 명단 항목과 이어 주세요</h3>
+          <p>상장 문구에 쓴 변수 중 명단에 없는 것이 있어요. 어느 항목 값을 넣을지 고르세요.</p>
+          <div id="mapRows" class="map-rows"></div>
+        </div>
+        <div id="sheetBox" class="sheet-box"></div>
+        <div class="keys-line"><span class="hint">쓸 수 있는 변수</span><div class="chips" id="keyChips"></div></div>
+      </div>
+
+      <div class="mode split" data-mode="direct" hidden>
+        <div class="direct-side">
+          <div class="direct-nav">
+            <button class="small" id="dPrev">이전</button>
+            <span id="dPos"></span>
+            <button class="small" id="dNext">다음</button>
+            <span class="grow"></span>
+            <button class="small" id="dAdd">새 상장 추가</button>
+            <button class="small danger" id="dDel">이 상장 삭제</button>
+          </div>
+          <div id="directForm" class="direct-form"></div>
+        </div>
+        <div class="stage-slot" data-slot="2"></div>
+      </div>
+    </div>
+    <div class="page-foot"><button class="ghost" data-goto="1">이전</button><button class="primary" data-goto="3">다음: 문구·배치</button></div>
+  </section>
+
+  <!-- 3. 문구·배치 -->
+  <section class="page edit" data-step="3">
+    <div class="ribbon" id="ribbon">
+      <div class="rb-group">
+        <select id="rbField" title="고칠 칸" class="rb-field"></select>
+      </div>
+      <div class="rb-group">
+        <select id="rbFont" title="글꼴" class="rb-font"></select>
+        <div class="num-step" title="글자 크기(pt)">
+          <button data-size="-1" aria-label="글자 작게">−</button>
+          <input type="number" id="rbSize" step="0.5" min="4">
+          <button data-size="1" aria-label="글자 크게">+</button>
+        </div>
+        <button class="tog" id="rbBold" title="굵게"><b>가</b></button>
+        <label class="rb-color" title="글자 색"><input type="color" id="rbColor"><span></span></label>
+      </div>
+      <div class="rb-group seg-ic" id="rbAlign" title="상자 안 글자 가로 정렬">
+        <button data-align="left" title="왼쪽 정렬"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.5h8M2 10h12M2 13.5h8"/></svg></button>
+        <button data-align="center" title="가운데 정렬"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M4 6.5h8M2 10h12M4 13.5h8"/></svg></button>
+        <button data-align="right" title="오른쪽 정렬"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M6 6.5h8M2 10h12M6 13.5h8"/></svg></button>
+        <button data-align="justify" title="양쪽 정렬"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h7"/></svg></button>
+        <button data-align="distribute" title="균등 분배"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.5h12M2 10h12M2 13.5h12M2 2v13M14 2v13" stroke-dasharray="0"/></svg></button>
+      </div>
+      <div class="rb-group seg-ic" id="rbValign" title="상자 안 글자 세로 정렬">
+        <button data-valign="top" title="위"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12M5 5v9M8 5v6M11 5v8"/></svg></button>
+        <button data-valign="middle" title="세로 가운데"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h12M5 3v10M8 5v6M11 4v8"/></svg></button>
+        <button data-valign="bottom" title="아래"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 14h12M5 2v9M8 5v6M11 3v8"/></svg></button>
+      </div>
+      <div class="rb-group">
+        <label class="rb-num" title="줄 간격(%)">줄 간격<input type="number" id="rbLH" step="10" min="100"></label>
+        <label class="rb-num" title="최대 줄 수 (0 = 제한 없음)">최대 줄<input type="number" id="rbMax" step="1" min="0"></label>
+      </div>
+      <div class="rb-group">
+        <button class="drop" data-pop="fit">자동 맞춤</button>
+        <button class="drop" data-pop="place">배치</button>
+        <button class="rb-text" id="rbText" title="이 칸의 문구 고치기 (상자를 두 번 눌러도 돼요)">문구 편집</button>
+      </div>
+      <div class="rb-group">
+        <span class="auto-state" id="rbAuto" title="자동 배치: 글 길이에 맞춰 위치와 크기를 정해요"></span>
+        <button id="rbAutoField" title="이 칸을 다시 자동 배치로">자동으로</button>
+      </div>
+      <span class="rb-info" id="rbInfo"></span>
+      <span class="grow"></span>
+      <div class="rb-group">
+        <button id="rbAutoAll" title="직접 옮긴 칸까지 모두 자동 배치로 되돌리기">전체 자동</button>
+        <button class="drop" data-pop="mark" title="원형·사각 틀에 로고·인장·문장 그림 넣기">마크</button>
+        <button class="drop" data-pop="stamp">도장</button>
+      </div>
+
+      <div class="pop" id="pop-fit" hidden>
+        <h4>글이 길 때 줄이는 한계</h4>
+        <p class="hint">장평 → 자간 → 글자 크기 순서로 이 값까지 줄여 맞춰요.</p>
+        <div class="row three">
+          <label class="lbl">최소 크기(pt)<input type="number" id="rbMinSize" step="0.5" min="4"></label>
+          <label class="lbl">최소 장평(%)<input type="number" id="rbMinScale" step="1" min="50" max="100"></label>
+          <label class="lbl">최소 자간(%)<input type="number" id="rbMinSpacing" step="1" min="-30" max="0"></label>
+        </div>
+      </div>
+      <div class="pop" id="pop-place" hidden>
+        <h4 id="popPlaceTitle">상자를 글 영역 기준으로 정렬</h4>
+        <div class="place-grid">
+          <button data-place="left">왼쪽</button><button data-place="hcenter">가로 가운데</button><button data-place="right">오른쪽</button>
+          <button data-place="top">위</button><button data-place="vcenter">세로 가운데</button><button data-place="bottom">아래</button>
+          <button data-place="fullw" class="span3">글 영역 너비에 맞추기</button>
+        </div>
+        <div class="place-grid multi-only" hidden>
+          <button data-place="groupHcenter" class="span3">묶음째 용지 가로 가운데로</button>
+          <button data-place="distV" title="세 개 이상 고르면 쓸 수 있어요">세로 간격 같게</button>
+          <button data-place="distH" title="세 개 이상 고르면 쓸 수 있어요">가로 간격 같게</button>
+          <span></span>
+        </div>
+        <h4>위치와 크기 (mm)</h4>
+        <div class="row four">
+          <label class="lbl">가로<input type="number" id="rbX" step="0.5"></label>
+          <label class="lbl">세로<input type="number" id="rbY" step="0.5"></label>
+          <label class="lbl">너비<input type="number" id="rbW" step="0.5" min="5"></label>
+          <label class="lbl">높이<input type="number" id="rbH" step="0.5" min="3"></label>
+        </div>
+        <p class="hint" id="posNote"></p>
+        <p class="hint">여러 상자: Shift·Ctrl을 누르고 누르거나, 빈 곳을 끌어 고르기 · Ctrl+A 모두 고르기<br>끌 때 Shift를 누르면 가로나 세로로만 움직여요 · 방향키 0.5mm, Shift+방향키 5mm</p>
+      </div>
+      <div class="pop pop-mark" id="pop-mark" hidden>
+        <h4>마크 프레임</h4>
+        <p class="hint">캔바의 프레임처럼 틀에 로고·인장·문장 그림을 채워요. 빈 틀을 누르면 그림을 고르고, 그림이 든 틀을 두 번 누르면 틀 안에서 그림을 끌어 옮기고 휠로 확대해요.</p>
+        <div class="mark-add"><span>틀 넣기</span><button data-addmark="circle">원형</button><button data-addmark="square">사각</button><button data-addmark="rounded">둥근 사각</button></div>
+        <div id="markBody" hidden>
+          <div class="mark-head"><input id="markName" class="mark-name" aria-label="마크 이름" maxlength="20"><button class="ghost small danger" id="markDel" title="이 틀 지우기 (Delete)">틀 지우기</button></div>
+          <div class="seg mark-shape" id="markShape"></div>
+          <div class="mark-btns">
+            <button class="small primary" id="markPick">그림 넣기</button>
+            <button class="small" id="markCrop" title="틀 안에서 그림 옮기기·확대 (틀을 두 번 눌러도 돼요)">틀 안에서 자르기</button>
+            <button class="small" id="markFit" title="확대·이동을 처음 상태로">맞춤 처음대로</button>
+            <button class="small ghost" id="markClearImg">그림 빼기</button>
+          </div>
+          <label class="check"><input type="checkbox" id="markBg"> 배경 지우기 (흰 종이·JPG 로고·인장)</label>
+          <label class="lbl bg-str" id="markBgRow" hidden>지우는 정도 <input type="range" id="markBgStr" min="0" max="100" step="1"><span id="markBgStrV">50</span></label>
+          <label class="lbl mark-zoom">틀 안 그림 확대 <input type="range" id="markZoom" min="100" max="600" step="1"><span id="markZoomV"></span></label>
+          <div class="row four">
+            <label class="lbl">가로<input type="number" id="markX" step="0.5"></label>
+            <label class="lbl">세로<input type="number" id="markY" step="0.5"></label>
+            <label class="lbl">너비<input type="number" id="markW" step="0.5" min="6"></label>
+            <label class="lbl">높이<input type="number" id="markH" step="0.5" min="6"></label>
+          </div>
+          <p class="hint">빈 틀은 화면에만 점선으로 보이고 인쇄·PDF·한글에는 들어가지 않아요. 그림은 틀 모양 그대로 잘려 들어가요.</p>
+        </div>
+        <p class="hint" id="markEmpty">틀을 누르면 여기서 고칠 수 있어요.</p>
+        <input type="file" id="markFile" accept="image/*" hidden>
+      </div>
+      <div class="pop" id="pop-stamp" hidden>
+        <h4>수여자 도장</h4>
+        <p class="hint">도장 이미지를 올리면 수여자 마지막 어절의 절반쯤에 걸치게 찍혀요. 휴대폰으로 찍은 JPG도 종이 배경을 지우고 인주만 남겨요.</p>
+        <div class="row">
+          <label class="file-btn">도장 이미지 올리기<input type="file" id="stampFile" accept="image/*"></label>
+          <button class="ghost small" id="stampClear" hidden>도장 지우기</button>
+        </div>
+        <div class="stamp-preview" id="stampPreview" hidden></div>
+        <label class="check"><input type="checkbox" id="stampWhite" checked> 배경 지우기 (JPG·사진도 자동)</label>
+        <label class="lbl bg-str" id="stampBgRow">지우는 정도 <input type="range" id="stampBgStr" min="0" max="100" step="1"><span id="stampBgStrV">50</span></label>
+        <label class="check"><input type="checkbox" id="stampRed"> 붉은색으로 맞추기</label>
+        <div class="row three">
+          <label class="lbl">크기(mm)<input type="number" id="stampSize" step="0.5" min="5"></label>
+          <label class="lbl">좌우(mm)<input type="number" id="stampDx" step="0.5"></label>
+          <label class="lbl">위아래(mm)<input type="number" id="stampDy" step="0.5"></label>
+        </div>
+      </div>
+    </div>
+    <div class="stage-slot" data-slot="3"></div>
+    <div class="page-foot"><button class="ghost" data-goto="2">이전</button><span class="foot-hint">상자를 눌러 고르고 두 번 누르면 문구 편집 · Shift·Ctrl+누르기나 빈 곳 끌기로 여러 개 · 끌 때 Shift는 수평·수직 고정 · Ctrl+휠 확대</span><button class="primary" data-goto="4">다음: 확인·내보내기</button></div>
+  </section>
+
+  <!-- 4. 확인·내보내기 -->
+  <section class="page wide" data-step="4">
+    <div class="split work">
+      <div class="stage-slot" data-slot="4"></div>
+      <aside class="inspector">
+        <div class="page-head compact">
+          <small>4단계</small>
+          <h1>한 장씩 확인하고 내보내요</h1>
+          <p>미리보기에서 글자를 누르면 <b>그 상장만</b> 내용을 직접 고칠 수 있어요.</p>
+        </div>
+        <div class="card list-card">
+          <div class="list-head"><h3>상장 목록</h3><span class="hint" id="listSum"></span></div>
+          <ol class="rec-list" id="recList"></ol>
+        </div>
+        <div class="card warn" id="warnBox" hidden></div>
+        <div class="card">
+          <h3>내보내기</h3>
+          <div class="seg" id="rangeSeg">
+            <button data-range="all" class="on">전체</button>
+            <button data-range="current">보고 있는 장만</button>
+          </div>
+          <div class="export-buttons">
+            <button class="primary big" id="printBtn" title="이 화면에서 바로 인쇄(보정값 그대로 적용)">바로 인쇄</button>
+            <button class="primary big" id="pdfBtn">PDF 내려받기</button>
+            <button class="primary big alt" id="hwpxBtn">한글(HWPX) 내려받기</button>
+          </div>
+          <label class="check"><input type="checkbox" id="bgInPdf"> 테두리도 함께 인쇄 (빈 종이에 인쇄할 때)</label>
+          <div class="progress" id="progress" hidden><div class="bar"><i></i></div><span></span></div>
+        </div>
+        <div class="card print-card">
+          <h3>인쇄 맞추기</h3>
+          <p class="hint">PDF는 A4 실제 크기로 만들어지고, 인쇄 창이 <b>실제 크기(100%)</b>로 열리도록 설정돼 있어요. 인쇄 창에서 "용지에 맞춤"이나 "축소"를 고르면 상장 용지 칸과 어긋나니 꼭 <b>실제 크기</b>로 인쇄하세요.</p>
+          <p class="hint safe" id="printSafe"></p>
+          <div class="print-how">
+            <b>바로 인쇄할 때 인쇄 창 설정</b>
+            <ol>
+              <li>대상: 쓸 프린터 (PDF로 저장 말고)</li>
+              <li>용지 크기: A4 · 방향: 세로</li>
+              <li>배율: <b>기본값</b> 또는 <b>100%</b> (맞춤·축소 금지)</li>
+              <li>여백: <b>없음</b> · 머리글과 바닥글: <b>끄기</b> · 배경 그래픽: 켜기(도장·테두리용)</li>
+            </ol>
+            <p class="hint">브라우저가 용지 크기와 여백 0을 미리 알려 주므로 보통 그대로 두면 돼요. 시험 인쇄도 같은 방식(바로 인쇄)으로 해야 보정값이 정확해요.</p>
+          </div>
+          <div class="test-buttons">
+            <button class="small primary" id="testPrintBtn">시험 인쇄 바로 하기</button>
+            <button class="small" id="testPageBtn">시험 인쇄 PDF</button>
+          </div>
+          <p class="hint">빈 종이에 시험 인쇄해 상장 용지와 겹쳐 보고, 어긋나면 아래 값을 넣어요.</p>
+          <div class="row three">
+            <label class="lbl" title="시험 인쇄의 100mm 선을 재 보니 몇 mm였나요?">100mm 선 실측(mm)<input type="number" id="measured" step="0.1" min="80" max="120"></label>
+            <label class="lbl">가로 보정(mm)<input type="number" id="offX" step="0.5"></label>
+            <label class="lbl">세로 보정(mm)<input type="number" id="offY" step="0.5"></label>
+          </div>
+          <p class="hint" id="printNote"></p>
+        </div>
+        <div class="card">
+          <h3>한글에서 열 때</h3>
+          <p class="hint">한글 파일에는 글꼴이 들어가지 않아요. 같은 모양으로 보려면 쓴 글꼴을 PC에 설치해 주세요.</p>
+          <ul class="font-links" id="fontLinks"></ul>
+        </div>
+      </aside>
+    </div>
+    <div class="page-foot"><button class="ghost" data-goto="3">이전</button><span></span></div>
+  </section>
+</main>
+
+<!-- 미리보기(단계마다 옮겨 다님) -->
+<section class="stage" id="stage">
+  <div class="stage-bar">
+    <div class="nav">
+      <button class="ghost small" id="prevRec" aria-label="이전 상장">이전</button>
+      <span class="pos" id="recPos">1 / 1</span>
+      <button class="ghost small" id="nextRec" aria-label="다음 상장">다음</button>
+      <span class="who" id="recWho"></span>
+    </div>
+    <div class="toggles">
+      <label class="check"><input type="checkbox" id="showBg" checked> 테두리</label>
+      <label class="check" id="boxToggle"><input type="checkbox" id="showBoxes" checked> 글 상자</label>
+      <label class="check" id="snapToggle" title="끌 때 용지 가운데·여백·다른 상자에 붙기 (Alt를 누르면 잠시 끔)"><input type="checkbox" id="snapOn" checked> 가이드 맞춤</label>
+      <div class="zoom" title="Ctrl+마우스 휠로도 확대·축소할 수 있어요">
+        <button class="ghost small" id="zoomOut" aria-label="축소">−</button>
+        <button class="ghost small zv" id="zoomVal" title="화면에 맞추기">100%</button>
+        <button class="ghost small" id="zoomIn" aria-label="확대">+</button>
+        <button class="ghost small" id="zoomFit">맞춤</button>
+      </div>
+    </div>
+  </div>
+  <div class="canvas" id="canvas">
+    <div class="sheet" id="sheet"></div>
+    <div class="editor" id="editor" hidden>
+      <div class="editor-head"><b id="edTitle"></b><span class="hint" id="edHint">이 상장에만 적용돼요</span></div>
+      <textarea id="edText" rows="3"></textarea>
+      <div class="chips small" id="edChips" hidden></div>
+      <div class="editor-foot">
+        <button class="small ghost" id="edReset">원래 문구로</button>
+        <span class="grow"></span>
+        <button class="small primary" id="edDone">다 고쳤어요</button>
+      </div>
+    </div>
+  </div>
+  <div class="status" id="status"></div>
+</section>
+
+<footer class="foot">
+  <span class="foot-brand"><b>쎈스 어워드</b> Sense Award · <a href="https://wsns.studio/" target="_blank" rel="noopener">WSNS studio</a></span>
+  <span>명단과 도장은 이 기기 안에서만 처리돼요 · 서버로 보내지 않아요</span>
+</footer>
+
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/fontkit.umd.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
