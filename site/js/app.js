@@ -1131,10 +1131,12 @@ function renderMarkPop() {
   $('#markBgStr').value = m.bgStrength ?? 50;
   $('#markBgStrV').textContent = m.bgStrength ?? 50;
 }
-function addMark(shape) {
+function addMark(shape, at) {
   const C = contentRect(state.border);
   const size = shape === 'circle' ? 30 : 36;
-  const m = clampMark(newMark({ shape, name: `마크 ${state.marks.length + 1}`, x: C.x + C.w / 2 - size / 2, y: C.y + C.h / 2 - (shape === 'circle' ? 30 : 24) / 2, w: size, h: shape === 'circle' ? size : 24 }));
+  const hh = shape === 'circle' ? size : 24;
+  const cx = at ? at.x : C.x + C.w / 2, cy = at ? at.y : C.y + C.h / 2;
+  const m = clampMark(newMark({ shape, name: `마크 ${state.marks.length + 1}`, x: cx - size / 2, y: cy - hh / 2, w: size, h: hh }));
   state.marks.push(m);
   selectMark(m.id);
   commitNow(); refresh();
@@ -1188,6 +1190,7 @@ function marqueeSvg() {
 $('#sheet').addEventListener('pointerdown', ev => {
   const svg = $('#page');
   if (!svg) return;
+  if (ev.button !== 0) return;   // 오른쪽 버튼은 메뉴만(끌기·파일 고르기 안 함)
   const box = ev.target.closest('[data-box]');
   if (state.step === 4) {
     if (box) { openEditor(box.dataset.box); ev.preventDefault(); } else closeEditor();
@@ -1651,6 +1654,206 @@ async function testPrintNow() {
   await sendToPrinter(printPageSvg(g), '시험 인쇄를 인쇄 창으로 보냈어요. 배율 기본값(100%), 여백 없음으로 인쇄하세요.');
 }
 
+// ---------- 오른쪽 클릭 메뉴(3단계 편집 · 4단계 확인) ----------
+// 누른 대상(글 칸 · 여러 칸 · 마크 틀 · 도장 · 빈 곳)에 맞는 일만 보여 준다.
+let fmtClip = null;     // 글자 서식 복사
+const FMT_KEYS = ['font', 'bold', 'color', 'align', 'valign', 'spacing', 'scale', 'lineHeight'];
+const CTX_ALIGNS = [['left', '왼쪽'], ['center', '가운데'], ['right', '오른쪽'], ['justify', '양쪽'], ['distribute', '균등 분배']];
+
+function ctxEl() {
+  let el = $('#ctxMenu');
+  if (!el) { el = document.createElement('div'); el.id = 'ctxMenu'; el.className = 'ctx'; el.hidden = true; el.setAttribute('role', 'menu'); document.body.appendChild(el); }
+  return el;
+}
+function hideCtx() { const el = $('#ctxMenu'); if (el) { el.hidden = true; el.innerHTML = ''; } }
+
+function renderCtx(items) {
+  return items.map((it, i) => {
+    if (it === '-') return '<div class="ctx-sep"></div>';
+    const cls = ['ctx-item', it.disabled ? 'disabled' : '', it.sub ? 'has-sub' : '', it.danger ? 'danger' : ''].join(' ');
+    return `<div class="${cls}" data-i="${i}" role="menuitem" aria-disabled="${it.disabled ? 'true' : 'false'}">
+      <span class="ctx-check">${it.checked ? '✓' : ''}</span><span class="ctx-label">${esc(it.label)}</span><span class="ctx-key">${it.sub ? '›' : esc(it.key || '')}</span>
+      ${it.sub ? `<div class="ctx ctx-sub">${renderCtx(it.sub)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function showCtx(items, x, y) {
+  const el = ctxEl();
+  el.innerHTML = renderCtx(items);
+  el.hidden = false;
+  el._items = items;
+  const r = el.getBoundingClientRect();
+  el.style.left = `${Math.max(6, Math.min(x, innerWidth - r.width - 6))}px`;
+  el.style.top = `${Math.max(6, Math.min(y, innerHeight - r.height - 6))}px`;
+  // 화면 오른쪽 끝이면 하위 메뉴를 왼쪽으로
+  el.classList.toggle('flip', x + r.width * 2 > innerWidth);
+}
+
+function ctxPick(target) {
+  const el = ctxEl();
+  // data-i 경로를 따라가 항목을 찾는다(하위 메뉴 포함)
+  const path = [];
+  for (let n = target.closest('.ctx-item'); n && el.contains(n); n = n.parentElement.closest('.ctx-item')) path.unshift(Number(n.dataset.i));
+  let list = el._items, it = null;
+  for (const i of path) { it = list[i]; list = it && it.sub; }
+  return it;
+}
+
+function fieldCtx(id) {
+  const f = state.fields.find(x => x.id === id);
+  if (!f) return [];
+  const ov = state.overrides[state.current] && typeof state.overrides[state.current][id] === 'string';
+  const vars = [...state.columns, ...BUILTIN_VARS].map(k => ({
+    label: `{{${k}}}`,
+    act: () => { openEditor(id, 'template'); requestAnimationFrame(() => { const b = $(`#edChips [data-insert="{{${CSS.escape(k)}}}"]`); if (b) b.click(); }); },
+  }));
+  return [
+    { label: '문구 고치기 (모든 상장)', key: '두 번 누르기', act: () => openEditor(id, 'template') },
+    { label: '변수 넣기', sub: vars },
+    { label: `이 상장만 고치기 (${state.current + 1}번 ${recName(state.current)})`, disabled: !state.rows.length, act: () => openEditor(id, 'override') },
+    { label: '이 상장 고친 것 되돌리기', disabled: !ov, act: () => { delete state.overrides[state.current][id]; commitNow(); refresh(); } },
+    '-',
+    { label: '글자 정렬', sub: CTX_ALIGNS.map(([v, n]) => ({ label: n, checked: f.align === v, act: () => { const b = $(`#rbAlign [data-align="${v}"]`); if (b) b.click(); } })) },
+    { label: '상자 위치', sub: [
+      { label: '용지 가로 가운데로', act: () => placeSelected('hcenter') },
+      { label: '글 영역 왼쪽 끝으로', act: () => placeSelected('left') },
+      { label: '글 영역 오른쪽 끝으로', act: () => placeSelected('right') },
+      { label: '글 영역 너비에 맞추기', act: () => placeSelected('fullw') },
+    ] },
+    { label: '자동 배치로 되돌리기', disabled: !f.manual, act: () => $('#rbAutoField').click() },
+    '-',
+    { label: '글자 서식 복사', act: () => { fmtClip = Object.fromEntries(FMT_KEYS.map(k => [k, f[k]])); setStatus(`'${f.label}' 칸 서식을 복사했어요. 다른 칸에서 오른쪽 클릭 → 서식 붙여넣기`); } },
+    { label: '서식 붙여넣기', disabled: !fmtClip, act: () => pasteFmt() },
+  ];
+}
+
+function pasteFmt() {
+  if (!fmtClip) return;
+  for (const f of selFields()) Object.assign(f, fmtClip);
+  commitNow(); renderRibbon(); refresh();
+}
+
+function multiCtx() {
+  const n = selFields().length;
+  return [
+    { label: `${n}개 칸 맞추기`, sub: [
+      { label: '왼쪽 맞춤', act: () => placeSelected('left') },
+      { label: '가로 가운데 맞춤', act: () => placeSelected('hcenter') },
+      { label: '오른쪽 맞춤', act: () => placeSelected('right') },
+      '-',
+      { label: '위 맞춤', act: () => placeSelected('top') },
+      { label: '세로 가운데 맞춤', act: () => placeSelected('vcenter') },
+      { label: '아래 맞춤', act: () => placeSelected('bottom') },
+    ] },
+    { label: '묶음째 용지 가로 가운데로', act: () => placeSelected('groupHcenter') },
+    { label: '세로 간격 같게', disabled: n < 3, act: () => placeSelected('distV') },
+    { label: '가로 간격 같게', disabled: n < 3, act: () => placeSelected('distH') },
+    '-',
+    { label: '글자 정렬', sub: CTX_ALIGNS.map(([v, nm]) => ({ label: nm, act: () => { const b = $(`#rbAlign [data-align="${v}"]`); if (b) b.click(); } })) },
+    { label: '서식 붙여넣기', disabled: !fmtClip, act: () => pasteFmt() },
+    { label: '자동 배치로 되돌리기', disabled: !selFields().some(f => f.manual), act: () => $('#rbAutoField').click() },
+    '-',
+    { label: '선택 풀기', key: 'Esc', act: () => { setSelection([], null); refresh(); } },
+  ];
+}
+
+function markCtx(m) {
+  return [
+    { label: m.src ? '그림 바꾸기' : '그림 넣기', act: () => pickMarkImage(m.id) },
+    { label: cropId === m.id ? '자르기 끝내기' : '틀 안에서 자르기', key: '두 번 누르기', disabled: !m.src, act: () => { cropId = cropId === m.id ? null : m.id; renderMarkPop(); refresh(); } },
+    { label: '맞춤 처음대로', disabled: !m.src || ((m.zoom || 1) === 1 && !m.panX && !m.panY), act: () => { m.zoom = 1; m.panX = 0; m.panY = 0; renderMarkPop(); commitNow(); refresh(); } },
+    { label: '배경 지우기', checked: !!m.bgOn, disabled: !m.src, act: () => { m.bgOn = !m.bgOn; applyMarkBg(m); } },
+    { label: '모양', sub: MARK_SHAPES.map(x => ({ label: x.name, checked: m.shape === x.id, act: () => { m.shape = x.id; clampMark(m); renderMarkPop(); commitNow(); refresh(); } })) },
+    '-',
+    { label: '복제', act: () => { const c = clampMark({ ...clone({ ...m, src: null, orig: null }), src: m.src, orig: m.orig, id: newMark().id, name: `${m.name || '마크'} 복사본`, x: m.x + 6, y: m.y + 6 }); state.marks.push(c); selectMark(c.id); commitNow(); refresh(); } },
+    { label: '맨 앞으로', disabled: state.marks[state.marks.length - 1] === m, act: () => { state.marks = state.marks.filter(x => x !== m).concat(m); commitNow(); refresh(); } },
+    { label: '맨 뒤로', disabled: state.marks[0] === m, act: () => { state.marks = [m, ...state.marks.filter(x => x !== m)]; commitNow(); refresh(); } },
+    { label: '설정 열기', act: () => { if (openPop !== 'mark') togglePop('mark'); } },
+    '-',
+    { label: '그림 빼기', disabled: !m.src, act: () => { m.src = null; m.orig = null; m.bgOn = false; m.imgW = 0; m.imgH = 0; cropId = null; clampMark(m); renderMarkPop(); commitNow(); refresh(); } },
+    { label: '틀 지우기', key: 'Delete', danger: true, act: () => removeMark(m.id) },
+  ];
+}
+
+function stampCtx(placed) {
+  const s = state.stamp;
+  const re = async () => { await processStamp(); renderStampCard(); commitNow(); refresh(); };
+  if (!placed) return [
+    { label: '도장 그림 넣기', act: () => { $('#stampFile').value = ''; $('#stampFile').click(); } },
+    { label: '도장 설정 열기', act: () => { if (openPop !== 'stamp') togglePop('stamp'); } },
+    '-',
+    { label: '도장 쓰지 않기', danger: true, act: () => { s.enabled = false; commitNow(); refresh(); } },
+  ];
+  return [
+    { label: '도장 바꾸기', act: () => { $('#stampFile').value = ''; $('#stampFile').click(); } },
+    { label: '배경 지우기', checked: !!s.white, act: () => { s.white = !s.white; re(); } },
+    { label: '붉은색으로 맞추기', checked: !!s.red, act: () => { s.red = !s.red; re(); } },
+    { label: '자리 처음대로 (끝 글자 절반)', disabled: !s.dx && !s.dy && !s.manual, act: () => { s.dx = 0; s.dy = 0; s.manual = false; renderStampCard(); commitNow(); refresh(); } },
+    { label: '도장 설정 열기', act: () => { if (openPop !== 'stamp') togglePop('stamp'); } },
+    '-',
+    { label: '도장 빼기', danger: true, act: () => $('#stampClear').click() },
+  ];
+}
+
+function emptyCtx(at) {
+  return [
+    { label: '여기에 틀 넣기', sub: MARK_SHAPES.map(x => ({ label: x.name, act: () => addMark(x.id, at) })) },
+    { label: '도장 틀 넣기', disabled: state.stamp.enabled, act: () => { state.stamp.enabled = true; commitNow(); refresh(); } },
+    '-',
+    { label: '모든 칸 고르기', key: 'Ctrl+A', act: () => { setSelection(state.fields.map(f => f.id), state.fields[0] && state.fields[0].id); refresh(); } },
+    { label: '서식 붙여넣기 (고른 칸)', disabled: !fmtClip || !selFields().length, act: () => pasteFmt() },
+    { label: '전체 자동 배치', disabled: !state.fields.some(f => f.manual), act: () => $('#rbAutoAll').click() },
+    '-',
+    { label: '칸 테두리 보이기', checked: state.showBoxes, act: () => { $('#showBoxes').click(); } },
+    { label: '가이드 맞춤(스냅)', checked: $('#snapOn').checked, act: () => { $('#snapOn').click(); } },
+    { label: '화면에 맞추기', key: 'Ctrl+0', act: () => { state.zoom = 'fit'; applyZoom(); save(); } },
+  ];
+}
+
+function overrideCtx(id) {
+  const f = state.fields.find(x => x.id === id);
+  if (!f) return [];
+  const ov = state.overrides[state.current] && typeof state.overrides[state.current][id] === 'string';
+  return [
+    { label: `이 상장만 고치기 (${state.current + 1}번 ${recName(state.current)})`, act: () => openEditor(id, 'override') },
+    { label: '이 상장 고친 것 되돌리기', disabled: !ov, act: () => { delete state.overrides[state.current][id]; commitNow(); refresh(); } },
+    { label: `'${f.label}' 칸 문구 고치기 (모든 상장)`, act: () => openEditor(id, 'template') },
+  ];
+}
+
+function onCanvasContext(e) {
+  if (state.step !== 3 && state.step !== 4) return;
+  e.preventDefault();
+  closeEditor();
+  const svg = $('#page');
+  const box = e.target.closest('[data-box]');
+  const id = box ? box.dataset.box : null;
+  const undoItems = ['-', { label: '되돌리기', key: 'Ctrl+Z', disabled: !undoStack.length, act: undo }, { label: '다시 하기', key: 'Ctrl+Y', disabled: !redoStack.length, act: redo }];
+  let items;
+  if (state.step === 4) {
+    if (!id || id.startsWith('__')) return hideCtx();
+    items = overrideCtx(id);
+  } else if (id && id.startsWith('__mark:')) {
+    const m = markById(id.slice(7));
+    if (!m) return;
+    selectMark(m.id); refresh();
+    items = markCtx(m);
+  } else if (id === '__stampPh' || id === '__stamp') {
+    if (markSel) { markSel = null; cropId = null; renderMarkPop(); }
+    stampSelected = id === '__stamp'; refresh();
+    items = stampCtx(id === '__stamp');
+  } else if (id) {
+    if (markSel) { markSel = null; cropId = null; renderMarkPop(); }
+    if (!isSel(id)) { setSelection([id], id); refresh(); }
+    items = selFields().length > 1 ? multiCtx() : fieldCtx(id);
+  } else {
+    const p = svg ? svgPoint(svg, e) : null;
+    items = emptyCtx(p ? { x: p.x, y: p.y } : null);
+  }
+  showCtx([...items, ...undoItems], e.clientX, e.clientY);
+}
+
 let templateCache = null;
 async function loadTemplate() {
   if (templateCache) return templateCache;
@@ -1746,6 +1949,21 @@ function bind() {
   $('#testPrintBtn').addEventListener('click', testPrintNow);
   $('#printBtn').addEventListener('click', printNow);
   $('#tabHome').addEventListener('click', goHome);
+  // 오른쪽 클릭 메뉴
+  $('#canvas').addEventListener('contextmenu', onCanvasContext);
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('#ctxMenu')) hideCtx(); }, true);
+  document.addEventListener('click', e => {
+    const item = e.target.closest('#ctxMenu .ctx-item');
+    if (!item) return;
+    const it = ctxPick(e.target);
+    if (!it || it.disabled || it.sub) return;
+    hideCtx();
+    it.act && it.act();
+  });
+  window.addEventListener('blur', hideCtx);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#ctxMenu') && !$('#ctxMenu').hidden) { hideCtx(); e.stopPropagation(); } }, true);
+  window.addEventListener('resize', hideCtx);
+  $('#canvas').addEventListener('scroll', hideCtx, true);
   // 마크 프레임
   $('#pop-mark').addEventListener('click', e => {
     const a = e.target.closest('[data-addmark]');

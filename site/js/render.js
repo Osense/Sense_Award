@@ -73,16 +73,12 @@ export function stampPlacement(doc, fields) {
   const pres = fields.find(r => r.field.id === 'presenter');
   let cx, cy;
   if (pres && !pres.pending && pres.lines && pres.lines.length) {
-    // 관례: 도장이 수여자 마지막 어절의 오른쪽 절반쯤에 걸친다
-    //  → 도장 왼쪽 끝을 마지막 어절의 가운데에 두고, 세로는 글줄 가운데에 맞춘다
+    // 관례: 도장이 수여자 마지막 음절(끝 글자)의 절반을 덮는다
+    //  → 도장 왼쪽 끝을 끝 글자의 가운데에 두고(오른쪽 절반을 덮고 밖으로), 세로는 글줄 가운데에 맞춘다
     const line = pres.lines[pres.lines.length - 1];
-    const words = (line.text || '').trim().split(/\s+/);
-    const n = Math.max(1, Array.from(words[words.length - 1] || '').length);
-    const wc = line.chars.slice(-n);
-    const first = wc[0], last = line.chars[line.chars.length - 1];
-    if (first && last) {
-      const mid = (first.x + last.x + last.w) / 2;
-      cx = mid + w / 2 + (st.dx || 0);
+    const last = line.chars[line.chars.length - 1];
+    if (last) {
+      cx = last.x + last.w / 2 + w / 2 + (st.dx || 0);
       cy = line.baseline - pres.sizeMm * 0.36 + (st.dy || 0);
     }
   }
