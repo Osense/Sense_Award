@@ -38,7 +38,8 @@ function freshState(templateId = 'kr') {
     overrides: [],
     offset: { x: 0, y: 0 },
     measured: 100,
-    stamp: { enabled: false, src: null, png: null, imgW: 0, imgH: 0, white: true, red: false, size: 20, dx: -5, dy: 0, manual: false },
+    // 한국 상장은 도장 틀을 미리 넣어 둔다(수여자 끝 글자에 걸치는 자리, 눌러서 도장 그림 넣기)
+    stamp: { enabled: !!T.stamp, src: null, png: null, imgW: 0, imgH: 0, white: true, red: false, size: 20, dx: -5, dy: 0, manual: false },
     showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: T.bgInPdf, colWidths: {},
     dataMode: 'paste', selected: null, sel: [], snap: true,
     layoutVersion: LAYOUT_VERSION,
@@ -455,7 +456,12 @@ async function drawBorderView() {
   try {
     await ensureFonts();
     applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
-    text = `<g opacity=".88">${textLayerSvg(computeRecord(docView(), Math.min(state.current, Math.max(0, state.rows.length - 1)), store))}</g>`;
+    const rec = computeRecord(docView(), Math.min(state.current, Math.max(0, state.rows.length - 1)), store);
+    // 마크·도장 틀도 같이 보여 준다(빈 틀은 점선)
+    let mk = state.marks.map(m => markSvg(m, { placeholder: true })).join('');
+    if (rec.stamp && state.stamp.png) mk += `<image href="${state.stamp.png}" x="${rec.stamp.x}" y="${rec.stamp.y}" width="${rec.stamp.w}" height="${rec.stamp.h}" preserveAspectRatio="none"/>`;
+    else if (state.stamp.enabled && rec.stamp) mk += markSvg({ id: 'stamp-ph', name: '도장', shape: 'square', ...rec.stamp }, { placeholder: true });
+    text = `<g opacity=".88">${mk}${textLayerSvg(rec)}</g>`;
   } catch {}
   // 치수 안내: 가장자리 → 굵은 선, 가는 선 → 글 영역
   const C = contentRect(B);
@@ -821,8 +827,12 @@ async function renderPreview() {
     stamp = `<image href="${state.stamp.png}" x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" preserveAspectRatio="none"/>`;
   }
   // 마크 프레임: 그림이 있으면 틀 모양으로 잘라 보여 주고, 빈 틀은 편집할 때만 점선으로
-  const showPh = state.step === 3 || (state.showBoxes && state.step !== 4);
-  const marks = `<g class="mark-layer">${state.marks.map(m => markSvg(m, { placeholder: showPh, crop: state.step === 3 && cropId === m.id })).join('')}</g>`;
+  // 빈 틀(마크·도장)은 화면에서만 점선으로 늘 보인다(인쇄·PDF·한글에는 안 들어감)
+  const showPh = true;
+  let marks = `<g class="mark-layer">${state.marks.map(m => markSvg(m, { placeholder: showPh, crop: state.step === 3 && cropId === m.id })).join('')}`;
+  const stampPh = state.stamp.enabled && rec.stamp && !state.stamp.png ? rec.stamp : null;
+  if (stampPh) marks += markSvg({ id: 'stamp-ph', name: '도장', shape: 'square', x: stampPh.x, y: stampPh.y, w: stampPh.w, h: stampPh.h }, { placeholder: true });
+  marks += '</g>';
   let boxes = '';
   if (state.step === 4) {
     // 확인 단계: 상자는 숨기고, 글자를 누르면 그 상장만 고친다
@@ -841,10 +851,6 @@ async function renderPreview() {
         <rect class="handle" data-handle="${f.id}" x="${f.x + f.w - 2.2}" y="${f.y + f.h - 2.2}" width="4.4" height="4.4" rx="0.8"/>
       </g>`;
     }).join('');
-    if (state.stamp.enabled && rec.stamp && !state.stamp.png) {
-      const s = rec.stamp;
-      boxes += `<circle class="stamp-ph" cx="${s.x + s.w / 2}" cy="${s.y + s.h / 2}" r="${s.w / 2}"/>`;
-    }
     // 마크 프레임: 끌어 옮기기, 모서리로 크기, 두 번 누르면 틀 안 그림 자르기(이동·휠 확대)
     if (state.step === 3) {
       for (const m of state.marks) {
@@ -857,6 +863,10 @@ async function renderPreview() {
           ${crop ? '' : `<rect class="handle" data-handle="__mark:${m.id}" x="${m.x + m.w - 2.2}" y="${m.y + m.h - 2.2}" width="4.4" height="4.4" rx="0.8"/>`}
         </g>`;
       }
+    }
+    // 빈 도장 틀: 누르면 도장 그림 고르기
+    if (state.step === 3 && stampPh) {
+      boxes += `<g class="box mark-box drag" data-box="__stampPh"><rect class="area" x="${stampPh.x}" y="${stampPh.y}" width="${stampPh.w}" height="${stampPh.h}"/><text class="tag" x="${stampPh.x + 0.6}" y="${stampPh.y - 0.9}">도장 · 눌러서 도장 그림 넣기</text></g>`;
     }
     // 도장: 3단계에서 끌어 옮기고 모서리로 크기 조절(수여자 끝 글자 기준 상대 위치로 기억)
     if (state.step === 3 && rec.stamp && state.stamp.png) {
@@ -1194,6 +1204,7 @@ $('#sheet').addEventListener('pointerdown', ev => {
     return;
   }
   const id = box.dataset.box;
+  if (id === '__stampPh') { $('#stampFile').value = ''; $('#stampFile').click(); return; }
   if (id.startsWith('__mark:')) {
     const mid = id.slice(7), m = markById(mid);
     if (!m) return;
@@ -1813,7 +1824,7 @@ function bind() {
       renderMarkPop(); refresh();
       return;
     }
-    if (id === '__stamp') return;
+    if (id === '__stamp' || id === '__stampPh') return;
     if (id) { selectField(id); openEditor(id, 'template'); }
   });
   $('#edText').addEventListener('keydown', e => { if (e.key === 'Escape') closeEditor(); });

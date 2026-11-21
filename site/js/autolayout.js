@@ -274,7 +274,8 @@ function computeUS(doc, store, border, paper, index) {
   // 꼬리: 서명자(오른쪽 기둥, 서명선 위에 서명 칸 자리 9mm), 날짜
   const pLines = Math.min(3, (st.presenter && st.presenter.pars ? st.presenter.pars.filter(x => x > 0).length : 1) || 1);
   const pH = Ps * (1.6 + (pLines - 1) * 1.3);
-  const pY = Math.min(US_REF.presenter, C0.y + C0.h - 10 - pH);
+  // 서명선 높이는 고정(서명 그림 틀과 맞물림) — 줄이 늘면 아래로 자란다
+  const pY = Math.min(US_REF.presenter, C0.y + C0.h - 3 - pH);
   put('presenter', { x: colX, y: pY, w: colW, h: pH }, Ps, 0.75, { ruleW: r(colW * 0.72 * kx) });
   const dH = D * 1.6;
   const dY = Math.min(US_REF.date - dH / 2, pY - 1.2 - 12 - dH);  // 서명선 위 12mm는 손 서명 자리

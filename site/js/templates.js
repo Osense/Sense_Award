@@ -30,24 +30,28 @@ export const US_FIELD_DEFS = [
 export const US_SAMPLE = {
   columns: ['발행처', '증서명', '이름', '소속', '내용', '날짜', '서명자'],
   rows: [
-    ['WSNS STUDIO', 'Certificate of Recognition', 'Wes Kim', '3rd Grade, Creative Media Class',
+    ['WSNS STUDIO', 'Certificate of Recognition', 'Wes Kwon', '3rd Grade, Creative Media Class',
       'In recognition of your outstanding creativity, steady effort, and kind leadership throughout the WSNS Studio film workshop. Your imagination and teamwork inspired everyone around you. Congratulations on a truly remarkable achievement!',
-      'Presented this 21st day of November, 2026', 'WES KWON\nDirector, WSNS Studio'],
-    ['WSNS STUDIO', 'Certificate of Appreciation', 'Doyun Lee', '5th Grade Volunteer',
+      'Presented this 21st day of November, 2026', 'Wes Kwon\nDirector, WSNS Studio'],
+    ['WSNS STUDIO', 'Certificate of Appreciation', 'Sense Kim', '5th Grade Volunteer',
       'With sincere appreciation for your generous time and cheerful spirit as a volunteer. Thank you for making a positive impact on our community.',
-      'Presented this 21st day of November, 2026', 'WES KWON\nDirector, WSNS Studio'],
-    ['WSNS STUDIO', 'Certificate of Achievement', 'Seoyeon Namgung', 'Host, Annual Arts Showcase',
-      'For hosting the Annual Arts Showcase with poise, warmth, and wit. Your thoughtful preparation, attentive listening, and steady guidance helped every performer shine and turned the evening into a celebration shared by the whole school. We are proud to recognize your leadership and wish you continued happiness and success.',
-      'Presented this 21st day of November, 2026', 'WES KWON\nDirector, WSNS Studio'],
+      'Presented this 21st day of November, 2026', 'Wes Kwon\nDirector, WSNS Studio'],
   ],
 };
 
 // 처음 넣어 둘 마크 프레임(빈 프레임 → 눌러서 그림 넣기): 맨 위 문장, 왼쪽 아래 인장
+// 서명은 서명선 바로 위(서명자 기둥 가운데)에 견본 서명 그림을 미리 넣어 둔다 — 눌러서 내 서명으로 바꾸기
+export const SAMPLE_SIGNATURE = { src: 'img/sample-signature.png', imgW: 791, imgH: 208 };
 function usMarks(border = US_BORDER, paper = PAPER) {
   const C = contentRect(border, paper);
+  const kx = C.w / 158.3, ky = C.h / 245.3;            // 견본 테두리 기준 → 지금 글 영역
+  const colCx = C.x + C.w * (0.35 + 0.31);             // 서명자 기둥 가운데(자동 배치와 같은 값)
+  const sigW = 58 * kx, sigH = 15.2 * ky;
+  const sigBottom = C.y + (241.8 - 25.85) * ky;         // 서명선 높이
   return [
     { id: 'emblem', name: '문장', shape: 'circle', x: paper.w / 2 - 12, y: C.y + 9, w: 24, h: 24 },
     { id: 'seal', name: '인장', shape: 'circle', x: C.x + 4, y: C.y + C.h - 54, w: 38, h: 38 },
+    { id: 'signature', name: '서명', shape: 'square', fit: 'contain', x: colCx - sigW / 2, y: sigBottom - sigH, w: sigW, h: sigH, ...SAMPLE_SIGNATURE, zoom: 1, panX: 0, panY: 0 },
   ];
 }
 
@@ -55,11 +59,11 @@ function usMarks(border = US_BORDER, paper = PAPER) {
 export const TEMPLATES = {
   kr: {
     id: 'kr', name: '한국 상장', desc: '시판 금박 상장 용지 · 조선궁서체 · 호수·상장명·수여자',
-    defs: FIELD_DEFS, sample: SAMPLE, border: BORDER_DEFAULT, bgInPdf: false, marks: () => [],
+    defs: FIELD_DEFS, sample: SAMPLE, border: BORDER_DEFAULT, bgInPdf: false, stamp: true, marks: () => [],
   },
   us: {
     id: 'us', name: '미국식 증서', desc: 'Certificate of Recognition · 필기체 제목 · 서명선 · 인장 마크',
-    defs: US_FIELD_DEFS, sample: US_SAMPLE, border: US_BORDER, bgInPdf: true, marks: usMarks,
+    defs: US_FIELD_DEFS, sample: US_SAMPLE, border: US_BORDER, bgInPdf: true, stamp: false, marks: usMarks,
   },
 };
 
