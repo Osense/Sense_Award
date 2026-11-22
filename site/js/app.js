@@ -41,7 +41,7 @@ function freshState(templateId = 'kr') {
     measured: 100,
     // 한국 상장은 도장 틀을 미리 넣어 둔다(수여자 끝 글자에 걸치는 자리, 눌러서 도장 그림 넣기)
     stamp: { enabled: !!T.stamp, src: null, png: null, imgW: 0, imgH: 0, white: true, bgStrength: 50, red: false, size: 20, dx: 0, dy: 0, manual: false, anchor: 'word-half' },
-    showBg: true, showBoxes: true, zoom: 'fit', range: 'all', bgInPdf: T.bgInPdf, colWidths: {},
+    showBg: true, showBoxes: true, zoom: 'fit', range: 'all', rangeText: '', bgInPdf: T.bgInPdf, colWidths: {},
     dataMode: 'paste', selected: null, sel: [], snap: true,
     layoutVersion: LAYOUT_VERSION,
   };
@@ -1418,7 +1418,83 @@ function positionEditor() {
 
 
 // ---------- 내보내기 ----------
-function allIndices() { return state.range === 'current' ? [state.current] : state.rows.map((_, i) => i); }
+/**
+ * 장 범위 해석: "1, 3", "1-2", "3~4", "5-"(5번부터 끝까지), "-3"(처음부터 3번까지)
+ * 쉼표·띄어쓰기·세미콜론으로 나눈다. 번호는 1부터, 겹치면 한 번만, 번호 순서대로.
+ * 반환: { indices: [0부터], bad: [알아듣지 못한 조각], out: [명단 밖 번호] }
+ */
+function parseRange(text, n) {
+  const set = new Set(), bad = [], out = [];
+  for (const raw of String(text || '').split(/[,;\s]+/)) {
+    const t = raw.trim();
+    if (!t) continue;
+    const m = t.match(/^(\d*)\s*[-~–—]\s*(\d*)$/);
+    let a, b;
+    if (/^\d+$/.test(t)) { a = b = Number(t); }
+    else if (m && (m[1] || m[2])) { a = m[1] ? Number(m[1]) : 1; b = m[2] ? Number(m[2]) : n; }
+    else { bad.push(t); continue; }
+    if (a > b) [a, b] = [b, a];
+    if (a < 1 || b > n) out.push(t);
+    for (let k = Math.max(1, a); k <= Math.min(n, b); k++) set.add(k - 1);
+  }
+  return { indices: [...set].sort((x, y) => x - y), bad, out };
+}
+
+// 번호 목록을 묶어서 글로(1-3, 5)
+function rangeText(indices) {
+  const nums = indices.map(i => i + 1), parts = [];
+  for (let i = 0; i < nums.length; i++) {
+    let j = i;
+    while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+    parts.push(j > i ? `${nums[i]}-${nums[j]}` : `${nums[i]}`);
+    i = j;
+  }
+  return parts;
+}
+
+function allIndices() {
+  if (state.range === 'current') return [state.current];
+  if (state.range === 'pick') return parseRange(state.rangeText, state.rows.length).indices;
+  return state.rows.map((_, i) => i);
+}
+
+// 범위 입력 아래 안내: 몇 장이 나가는지, 알아듣지 못한 조각
+function renderRangeInfo() {
+  if (!$('#rangeRow')) return;
+  $('#rangeRow').hidden = state.range !== 'pick';
+  if ($('#rangeText') !== document.activeElement) $('#rangeText').value = state.rangeText || '';
+  const n = state.rows.length;
+  let info = '', bad = false;
+  if (state.range === 'all') info = `${n}장 모두`;
+  else if (state.range === 'current') info = `${state.current + 1}번 한 장`;
+  else {
+    const r = parseRange(state.rangeText, n);
+    info = r.indices.length ? `${r.indices.length}장: ${rangeText(r.indices).join(', ')}번` : '내보낼 장이 없어요. 번호를 넣어 주세요.';
+    if (r.bad.length) { info += ` · 알아듣지 못한 부분: ${r.bad.join(' ')}`; bad = true; }
+    if (r.out.length) { info += ` · 명단은 ${n}번까지예요`; bad = true; }
+    if (!r.indices.length) bad = true;
+  }
+  $('#rangeInfo').textContent = info;
+  $('#rangeInfo').classList.toggle('warn', bad);
+  // 목록에서 내보내지 않는 장은 흐리게
+  const set = new Set(allIndices());
+  $$('#recList li').forEach((li, i) => li.classList.toggle('out', !set.has(i)));
+}
+
+// 내보낼 장이 없으면 멈추고 알려 준다
+function checkIndices(indices) {
+  if (indices.length) return true;
+  progress(0, 1, '내보낼 장이 없어요. "일부만"에 1, 3, 5-7처럼 번호를 넣어 주세요.');
+  if ($('#rangeText')) $('#rangeText').focus();
+  return false;
+}
+
+// 파일 이름 꼬리: 일부면 _1-2_5, 한 장이면 _3
+function rangeSuffix(indices) {
+  if (state.range === 'all' || indices.length === state.rows.length) return '';
+  const t = rangeText(indices).join('_');
+  return `_${t.length > 40 ? `${indices.length}장` : t}`;
+}
 
 async function renderSummary() {
   await ensureFonts(true).catch(() => {});
@@ -1436,6 +1512,7 @@ async function renderSummary() {
     items.push(`<li class="${i === state.current ? 'cur' : ''}"><button data-rec="${i}"><span class="no">${i + 1}</span><span class="nm">${esc(recName(i)) || '(이름 없음)'}</span>${ed ? `<span class="tagc ed">고침 ${ed}</span>` : ''}${over.length ? `<span class="tagc ov">넘침</span>` : ''}</button></li>`);
   }
   $('#recList').innerHTML = items.join('');
+  renderRangeInfo();
   const editedTotal = state.overrides.filter((o, i) => i < n && Object.keys(o).length).length;
   $('#listSum').textContent = `${n}장${editedTotal ? ` · 직접 고친 상장 ${editedTotal}` : ''}${overCount ? ` · 넘침 ${overCount}` : ''}`;
   const cur = $('#recList li.cur');
@@ -1540,6 +1617,7 @@ async function exportPdf() {
     await ensureFonts(true);
     applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
     const indices = allIndices();
+    if (!checkIndices(indices)) return;
     progress(0, indices.length, '준비 중…');
     const res = await buildPdf({
       PDFLib: window.PDFLib, fontkit: window.fontkit, doc: docView(), store, indices,
@@ -1550,7 +1628,7 @@ async function exportPdf() {
       subset: subsetFn,
       onProgress: async (d, t) => { progress(d, t, d === t ? '파일로 묶는 중…' : ''); await new Promise(r => setTimeout(r)); },
     });
-    download(res.bytes, `상장_${stamp8()}${indices.length === 1 ? `_${indices[0] + 1}` : ''}.pdf`, 'application/pdf');
+    download(res.bytes, `상장_${stamp8()}${rangeSuffix(indices)}.pdf`, 'application/pdf');
     progress(1, 1, `PDF ${indices.length}장을 만들었어요.`);
   } catch (e) {
     console.error(e);
@@ -1605,6 +1683,7 @@ async function printNow() {
     await ensureFonts(true);
     applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
     const indices = allIndices();
+    if (!checkIndices(indices)) return;
     const { w, h } = paperSize();
     // 테두리: PDF와 같은 단색 경로(그라데이션은 인쇄에서 빠지는 브라우저가 있음)
     const bg = state.bgInPdf ? borderShapes(normBorder(state.border)).map(sh => sh.fill
@@ -1874,6 +1953,7 @@ async function exportHwpx() {
     await ensureFonts(true);
     applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
     const indices = allIndices();
+    if (!checkIndices(indices)) return;
     progress(0, 1, '한글 파일 만드는 중…');
     const res = await buildHwpx({
       JSZip: window.JSZip, template: await loadTemplate(), doc: docView(), store, indices,
@@ -1882,7 +1962,7 @@ async function exportHwpx() {
       marks: await bakedMarks(),
       stampPx: { w: state.stamp.imgW, h: state.stamp.imgH },
     });
-    download(res.bytes, `상장_${stamp8()}${indices.length === 1 ? `_${indices[0] + 1}` : ''}.hwpx`, 'application/hwp+zip');
+    download(res.bytes, `상장_${stamp8()}${rangeSuffix(indices)}.hwpx`, 'application/hwp+zip');
     progress(1, 1, `한글 파일(${indices.length}쪽)을 만들었어요.`);
   } catch (e) {
     console.error(e);
@@ -2183,7 +2263,11 @@ function bind() {
     if (!b) return;
     state.range = b.dataset.range;
     $$('#rangeSeg button').forEach(x => x.classList.toggle('on', x === b)); save();
+    renderRangeInfo();
+    if (state.range === 'pick') $('#rangeText').focus();
   });
+  $('#rangeText').addEventListener('input', e => { state.rangeText = e.target.value; renderRangeInfo(); save(); });
+  $('#rangeText').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#pdfBtn').click(); } });
   $('#bgInPdf').addEventListener('change', e => { state.bgInPdf = e.target.checked; save(); });
   $('#pdfBtn').addEventListener('click', exportPdf);
   $('#hwpxBtn').addEventListener('click', exportHwpx);
@@ -2287,6 +2371,7 @@ function applyViewToggles() {
   $('#showBoxes').checked = state.showBoxes;
   $('#bgInPdf').checked = state.bgInPdf;
   $$('#rangeSeg button').forEach(x => x.classList.toggle('on', x.dataset.range === state.range));
+  renderRangeInfo();
 }
 
 bind();

@@ -639,3 +639,11 @@ body[data-step="0"] .step-tabs, body[data-step="0"] .hist, body[data-step="0"] #
 .ctx-item:hover > .ctx-sub .ctx-item { color: var(--text); }
 .ctx-item:hover > .ctx-sub .ctx-item:hover:not(.disabled) { color: #fff; }
 .ctx-sub .ctx-key { color: var(--muted); }
+
+/* 4단계: 일부만 내보내기 */
+.range-row { margin-top: 10px; }
+.range-row input { width: 100%; font-size: 15px; padding: 9px 12px; letter-spacing: .02em; }
+.range-row .hint { margin-top: 6px; }
+.range-info { margin: 8px 0 0; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+.range-info.warn { color: oklch(0.55 0.17 40); }
+#recList li.out { opacity: .38; }
