@@ -35,6 +35,7 @@
     <span class="top-sep"></span>
     <button class="ghost" id="resetBtn" title="처음 상태로 되돌리기">초기화</button>
     <button class="ghost" id="themeBtn">어둡게</button>
+    <button class="acct-btn" id="acctBtn" type="button">로그인</button>
   </div>
 </header>
 
@@ -47,6 +48,7 @@
         <h1>상장 프로젝트</h1>
         <p>상장 묶음마다 프로젝트를 하나씩 만들어요. 용지·명단·문구·배치·도장이 프로젝트별로 이 기기(브라우저)에 저장돼요. 새 프로젝트는 늘 견본 상태에서 시작하고, 복제하면 같은 설정으로 다른 명단을 만들 수 있어요.</p>
       </div>
+      <div class="plan-strip" id="planStrip"></div>
       <div class="proj-grid" id="projGrid"></div>
       <p class="hint" id="projEmpty">아직 만든 프로젝트가 없어요. 새 프로젝트로 시작하세요.</p>
     </div>
@@ -318,7 +320,7 @@
             <button class="small" id="markFit" title="확대·이동을 처음 상태로">맞춤 처음대로</button>
             <button class="small ghost" id="markClearImg">그림 빼기</button>
           </div>
-          <label class="check"><input type="checkbox" id="markBg"> 배경 지우기 (흰 종이·JPG 로고·인장)</label>
+          <label class="check" data-need><input type="checkbox" id="markBg"> 배경 지우기 (흰 종이·JPG 로고·인장)</label>
           <label class="lbl bg-str" id="markBgRow" hidden>지우는 정도 <input type="range" id="markBgStr" min="0" max="100" step="1"><span id="markBgStrV">50</span></label>
           <label class="lbl mark-zoom">틀 안 그림 확대 <input type="range" id="markZoom" min="100" max="600" step="1"><span id="markZoomV"></span></label>
           <div class="row four">
@@ -340,7 +342,7 @@
           <button class="ghost small" id="stampClear" hidden>도장 지우기</button>
         </div>
         <div class="stamp-preview" id="stampPreview" hidden></div>
-        <label class="check"><input type="checkbox" id="stampWhite" checked> 배경 지우기 (JPG·사진도 자동)</label>
+        <label class="check" data-need><input type="checkbox" id="stampWhite" checked> 배경 지우기 (JPG·사진도 자동)</label>
         <label class="lbl bg-str" id="stampBgRow">지우는 정도 <input type="range" id="stampBgStr" min="0" max="100" step="1"><span id="stampBgStrV">50</span></label>
         <label class="check"><input type="checkbox" id="stampRed"> 붉은색으로 맞추기</label>
         <div class="row three">
@@ -402,8 +404,8 @@
           <div class="export-buttons tpl-pane" data-for="kr us custom">
             <button class="primary big" id="printBtn" title="이 화면에서 바로 인쇄(보정값 그대로 적용)">바로 인쇄</button>
             <button class="primary big" id="pdfBtn">PDF 내려받기</button>
-            <button class="primary big alt" id="hwpxBtn">한글(HWPX) 내려받기</button>
-            <button class="big ghost" id="pngBtn" title="장마다 PNG 그림으로 묶어 ZIP으로">그림(PNG) 묶음 내려받기</button>
+            <button class="primary big alt" id="hwpxBtn" data-need>한글(HWPX) 내려받기</button>
+            <button class="big ghost" id="pngBtn" data-need title="장마다 PNG 그림으로 묶어 ZIP으로">그림(PNG) 묶음 내려받기</button>
           </div>
           <label class="check tpl-pane" data-for="kr us custom"><input type="checkbox" id="bgInPdf"> <span id="bgInPdfLabel">테두리도 함께 인쇄 (빈 종이에 인쇄할 때)</span></label>
           <div class="progress" id="progress" hidden><div class="bar"><i></i></div><span></span></div>
@@ -482,6 +484,43 @@
   </div>
   <div class="status" id="status"></div>
 </section>
+
+<div class="auth-back" id="authBack" hidden>
+  <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <button class="ghost auth-x" id="authClose" aria-label="닫기">×</button>
+    <div class="auth-form">
+      <small class="auth-kicker">WSNS 계정</small>
+      <h2 id="authTitle">로그인하고 모든 기능을 무료로</h2>
+      <p class="auth-reason" id="authReason" hidden></p>
+      <p class="hint auth-lead">wsns.studio와 같은 계정이에요. 로그인만 하면 메일머지와 한글 내보내기까지 모두 무료로 열려요.</p>
+      <form id="authForm" novalidate>
+        <label class="lbl">이메일<input type="email" id="authEmail" autocomplete="email" required></label>
+        <label class="lbl">비밀번호<input type="password" id="authPw" autocomplete="current-password" required></label>
+        <p class="auth-err" id="authErr" hidden></p>
+        <button class="primary big" id="authSubmit" type="submit">로그인</button>
+      </form>
+      <div class="auth-links">
+        <a id="authSignup" target="_blank" rel="noopener">WSNS 회원가입</a>
+        <span aria-hidden="true">·</span>
+        <a id="authForgot" target="_blank" rel="noopener">비밀번호 찾기</a>
+      </div>
+      <p class="hint auth-note">가입과 비밀번호 찾기는 wsns.studio에서 해요. 가입을 마치고 이 창으로 돌아와 로그인하세요.</p>
+      <div class="auth-alt" id="authAlt"></div>
+      <button class="ghost auth-guest" id="authGuest" type="button">로그인 없이 쓰기</button>
+    </div>
+    <div class="auth-plan">
+      <h3>무엇이 달라지나요</h3>
+      <table class="plan-table" id="planTable"></table>
+      <p class="hint">명단·도장·문서는 로그인해도 이 기기 안에서만 처리돼요. 로그인은 기능을 여는 데에만 써요.</p>
+    </div>
+  </div>
+</div>
+<div class="acct-menu" id="acctMenu" hidden>
+  <div class="acct-who"><b id="acctName"></b><span id="acctEmail"></span><em>로그인 회원 · 모든 기능 무료</em></div>
+  <a id="acctPage" target="_blank" rel="noopener">WSNS 내 계정</a>
+  <button class="ghost" id="acctPlan" type="button">플랜 비교 보기</button>
+  <button class="ghost danger" id="acctOut" type="button">로그아웃</button>
+</div>
 
 <footer class="foot">
   <span class="foot-brand"><b>쎈스 어워드</b> Sense Award · <a href="https://wsns.studio/" target="_blank" rel="noopener">WSNS studio</a></span>

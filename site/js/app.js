@@ -1,4 +1,5 @@
 // 쎈스 어워드 — 화면과 상태
+import { WSNS_LINKS, GUEST_LIMITS, MEMBER_FEATURES, PLAN_ROWS, initAuth, onAuthChange, currentUser, isMember, can, signIn, signOut, authErrorText } from './account.js';
 import { FONTS, FontStore, DEFAULT_FONT, FALLBACK_FONT, fontInfo, variantKey } from './fonts.js';
 import { PAPER, FIELD_BASE, SAMPLE, FIELD_DEFS, defaultFields, BORDER_DEFAULT, BORDER_LIMITS, ORNAMENT_TYPES, normBorder, borderSvg, borderShapes, contentRect } from './papers.js';
 import { applyAutoLayout, layoutForRecord } from './autolayout.js';
@@ -162,6 +163,8 @@ function openProject(id) {
 }
 
 function newProject(templateId = 'kr') {
+  if (!need(`tpl:${templateId}`)) return;
+  if (!projectRoom()) return;
   persist();
   const id = newId();
   const st = freshState(templateId);
@@ -173,6 +176,7 @@ function newProject(templateId = 'kr') {
 }
 
 function duplicateProject(id) {
+  if (!projectRoom()) return;
   persist();
   const list = readIndex();
   const i = list.findIndex(p => p.id === id);
@@ -248,7 +252,7 @@ function renderHome() {
     const row = T.sample.rows[0] || [];
     const val = col => row[T.sample.columns.indexOf(col)] || '';
     const title = T.id === 'us' ? val('증서명') : T.free ? '' : val('상장명');
-    return `<button class="proj-new tpl-card" data-new="${T.id}"${T.id === 'kr' ? ' id="homeNew"' : ''}>
+    return `<button class="proj-new tpl-card" data-new="${T.id}"${T.id === 'kr' ? ' id="homeNew"' : ''}${`tpl:${T.id}` in MEMBER_FEATURES ? ' data-need' : ''}>
       <span class="proj-thumb tpl-${T.id}" style="background-image:url(&quot;${thumb}&quot;)"><span class="t">${esc(title)}</span><span class="n">${T.free ? '' : esc(val('이름'))}</span><span class="plus">+</span></span>
       <b>새 ${esc(T.name)}</b><span class="hint">${esc(T.desc)}</span></button>`;
   }).join('');
@@ -783,8 +787,8 @@ function renderStampCard() {
   $('#stampClear').hidden = !s.src;
   $('#stampPreview').hidden = !s.png;
   $('#stampPreview').innerHTML = s.png ? `<img src="${s.png}" alt="도장 미리보기">` : '';
-  $('#stampWhite').checked = !!s.white;
-  $('#stampBgRow').hidden = !s.white || !s.src;
+  $('#stampWhite').checked = !!s.white && can('bgremove');
+  $('#stampBgRow').hidden = !s.white || !s.src || !can('bgremove');
   $('#stampBgStr').value = s.bgStrength ?? 50;
   $('#stampBgStrV').textContent = s.bgStrength ?? 50;
   $('#stampRed').checked = !!s.red;
@@ -819,7 +823,7 @@ async function processStamp() {
   if (!s.src) { s.png = null; s.enabled = false; return; }
   const red = s.red ? [200, 28, 36] : null;
   let out;
-  if (s.white && !(await hasTransparency(s.src))) {
+  if (s.white && can('bgremove') && !(await hasTransparency(s.src))) {
     // JPG·사진: 종이 얼룩까지 펴서 배경을 지우고 잉크만 남긴다
     out = await removeBackground(s.src, { strength: s.bgStrength ?? 50, recolor: red, maxSide: 800 });
   } else {
@@ -1225,6 +1229,7 @@ async function setMarkImage(id, file) {
 // 마크 그림 배경 지우기(원본은 m.orig에 두고 다시 계산)
 async function applyMarkBg(m) {
   if (!m.src && !m.orig) return;
+  if (m.bgOn && !need('bgremove')) { m.bgOn = false; renderMarkPop(); return; }
   if (m.bgOn) {
     if (!m.orig) m.orig = m.src;
     const r = await removeBackground(m.orig, { strength: m.bgStrength ?? 50, trim: false, maxSide: 1600 });
@@ -1682,11 +1687,12 @@ async function exportTestPage() {
 let busy = false;
 async function exportPdf() {
   if (busy || !state.rows.length) return;
+  if (!gateExport('pdf', exportPdf)) return;
   busy = true;
   try {
     await ensureFonts(true);
     applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
-    const indices = allIndices();
+    const indices = capIdx(allIndices());
     if (!checkIndices(indices)) return;
     progress(0, indices.length, '준비 중…');
     const res = await buildPdf({
@@ -1754,11 +1760,12 @@ async function bakedMarks() {
 
 async function printNow() {
   if (busy || !state.rows.length) return;
+  if (!gateExport('print', printNow)) return;
   busy = true;
   try {
     await ensureFonts(true);
     applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
-    const indices = allIndices();
+    const indices = capIdx(allIndices());
     if (!checkIndices(indices)) return;
     const { w, h } = paperSize();
     // 테두리: PDF와 같은 단색 경로(그라데이션은 인쇄에서 빠지는 브라우저가 있음)
@@ -2081,9 +2088,10 @@ function renderDocPreview() {
 }
 
 async function exportDoc() {
+  if (!gateExport('doc', exportDoc)) return;
   const d = docInfo();
   if (!d) { setStatus('1단계에서 문서를 먼저 올려 주세요.'); return; }
-  const indices = allIndices();
+  const indices = capIdx(allIndices());
   if (!checkIndices(indices)) return;
   const mode = state.docMode === 'combined' && d.sections > 1 ? 'separate' : state.docMode;
   progress(0, indices.length, '문서 만드는 중…');
@@ -2110,7 +2118,8 @@ async function exportDoc() {
 // ---- 그림(PNG) 묶음: 장마다 PNG(200dpi)로 그려 ZIP
 async function exportPng() {
   if (busy || !state.rows.length) return;
-  const indices = allIndices();
+  if (!gateExport('png', exportPng)) return;
+  const indices = capIdx(allIndices());
   if (!checkIndices(indices)) return;
   busy = true;
   try {
@@ -2285,7 +2294,7 @@ function stampCtx(placed) {
   ];
   return [
     { label: '도장 바꾸기', act: () => { $('#stampFile').value = ''; $('#stampFile').click(); } },
-    { label: '배경 지우기', checked: !!s.white, act: () => { s.white = !s.white; re(); } },
+    { label: '배경 지우기', checked: !!s.white && can('bgremove'), act: () => { if (!can('bgremove')) { need('bgremove'); return; } s.white = !s.white; re(); } },
     { label: '붉은색으로 맞추기', checked: !!s.red, act: () => { s.red = !s.red; re(); } },
     { label: '자리 처음대로 (끝 글자 절반)', disabled: !s.dx && !s.dy && !s.manual, act: () => { s.dx = 0; s.dy = 0; s.manual = false; renderStampCard(); commitNow(); refresh(); } },
     { label: '도장 설정 열기', act: () => { if (openPop !== 'stamp') togglePop('stamp'); } },
@@ -2368,11 +2377,12 @@ async function loadTemplate() {
 
 async function exportHwpx() {
   if (busy || !state.rows.length) return;
+  if (!gateExport('hwpx', exportHwpx)) return;
   busy = true;
   try {
     await ensureFonts(true);
     applyAutoLayout(docView(), store, state.border, undefined, Math.min(state.current, Math.max(0, state.rows.length - 1)));
-    const indices = allIndices();
+    const indices = capIdx(allIndices());
     if (!checkIndices(indices)) return;
     progress(0, 1, '한글 파일 만드는 중…');
     const res = await buildHwpx({
@@ -2693,7 +2703,7 @@ function bind() {
     await processStamp(); renderStampCard(); refresh();
   });
   $('#stampClear').addEventListener('click', async () => { state.stamp.src = null; await processStamp(); renderStampCard(); refresh(); });
-  $('#stampWhite').addEventListener('change', async e => { state.stamp.white = e.target.checked; await processStamp(); renderStampCard(); refresh(); });
+  $('#stampWhite').addEventListener('change', async e => { if (e.target.checked && !need('bgremove')) { e.target.checked = false; return; } state.stamp.white = e.target.checked; await processStamp(); renderStampCard(); refresh(); });
   $('#stampRed').addEventListener('change', async e => { state.stamp.red = e.target.checked; await processStamp(); renderStampCard(); refresh(); });
   let bgTimer = 0;
   $('#stampBgStr').addEventListener('input', e => {
@@ -2814,6 +2824,134 @@ async function downscale(im, maxSide) {
   return cv.toDataURL(im.src.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', 0.9);
 }
 
+// ---------- WSNS 계정 · 플랜 ----------
+// 비로그인: 한국 상장 · PDF·인쇄 · 한 번에 30장 · 프로젝트 3개 / 로그인(무료): 모든 기능
+// 받침에 맞춰 은/는
+const eunNeun = w => { const m = String(w).match(/[가-힣](?=[^가-힣]*$)/); return m && (m[0].charCodeAt(0) - 0xac00) % 28 ? '은' : '는'; };
+let authAlt = null;      // 로그인 창의 "로그인 없이 이렇게 할게요" 버튼 동작
+let exportCap = 0;       // "앞 30장만 내보내기"를 고르면 다음 내보내기 한 번만 자르기
+function need(feature, opts = {}) {
+  if (can(feature)) return true;
+  openAuth({ feature, ...opts });
+  return false;
+}
+function projectRoom() {
+  if (isMember() || readIndex().length < GUEST_LIMITS.projects) return true;
+  openAuth({ feature: 'projects', reason: `로그인 없이는 프로젝트를 <b>${GUEST_LIMITS.projects}개</b>까지 만들 수 있어요. 쓰지 않는 프로젝트를 지우거나, 로그인하면 제한 없이 만들 수 있어요.` });
+  return false;
+}
+// 내보내기 전 확인: 양식 → 형식 → 장수
+function gateExport(kind, rerun) {
+  if (!need(`tpl:${state.template}`, { reason: `<b>${esc(MEMBER_FEATURES[`tpl:${state.template}`] || '')}</b>${eunNeun(MEMBER_FEATURES[`tpl:${state.template}`] || '')} 로그인하면 무료로 쓸 수 있어요. 지금 만든 내용은 그대로 남아 있어요.` })) return false;
+  if ((kind === 'hwpx' || kind === 'png') && !need(kind)) return false;
+  if (exportCap || isMember()) return true;
+  const n = allIndices().length;
+  if (n <= GUEST_LIMITS.sheets) return true;
+  openAuth({
+    feature: 'sheets',
+    reason: `로그인 없이는 한 번에 <b>${GUEST_LIMITS.sheets}장</b>까지 내보낼 수 있어요. 지금 고른 건 <b>${n}장</b>이에요.`,
+    alt: { label: `로그인 없이 앞 ${GUEST_LIMITS.sheets}장만 내보내기`, run: () => { exportCap = GUEST_LIMITS.sheets; rerun(); } },
+  });
+  return false;
+}
+function capIdx(indices) {
+  if (!exportCap) return indices;
+  const out = indices.slice(0, exportCap);
+  exportCap = 0;
+  return out;
+}
+
+function renderPlanTable() {
+  const cell = v => (v === true ? '<td class="y">○</td>' : v === false ? '<td class="n">–</td>' : `<td class="t">${esc(v)}</td>`);
+  $('#planTable').innerHTML = `<thead><tr><th>기능</th><th>로그인 없이</th><th class="mem">로그인(무료)</th></tr></thead><tbody>${
+    PLAN_ROWS.map(([label, g, m]) => `<tr><td>${esc(label)}</td>${cell(g)}${cell(m).replace('<td class="', '<td class="mem ')}</tr>`).join('')}</tbody>`;
+}
+function openAuth({ feature, reason, alt } = {}) {
+  closeAcctMenu();
+  renderPlanTable();
+  const why = reason || (feature && MEMBER_FEATURES[feature] ? `<b>${esc(MEMBER_FEATURES[feature])}</b>${eunNeun(MEMBER_FEATURES[feature])} 로그인하면 무료로 쓸 수 있어요.` : '');
+  $('#authReason').innerHTML = why;
+  $('#authReason').hidden = !why;
+  $('#authTitle').textContent = why ? '로그인하면 바로 열려요' : '로그인하고 모든 기능을 무료로';
+  $('#authErr').hidden = true;
+  authAlt = alt || null;
+  $('#authAlt').innerHTML = alt ? `<button class="ghost" type="button" id="authAltBtn">${esc(alt.label)}</button>` : '';
+  $('#authBack').hidden = false;
+  setTimeout(() => $('#authEmail').focus(), 30);
+}
+function closeAuth() {
+  $('#authBack').hidden = true;
+  authAlt = null;
+  try { localStorage.setItem('sense-award:welcomed', '1'); } catch {}
+}
+function closeAcctMenu() { $('#acctMenu').hidden = true; }
+function renderAccount() {
+  const u = currentUser();
+  document.body.classList.toggle('guest', !u);
+  const b = $('#acctBtn');
+  b.classList.toggle('on', !!u);
+  b.innerHTML = u ? `<span class="ini">${esc((u.name || u.email || '?').trim().charAt(0).toUpperCase())}</span>${esc(u.name || u.email)}` : '로그인';
+  b.title = u ? `${u.email} · 로그인 회원(모든 기능 무료)` : 'WSNS 계정으로 로그인';
+  if (u) { $('#acctName').textContent = u.name || ''; $('#acctEmail').textContent = u.email; }
+  else closeAcctMenu();
+  $('#planStrip').className = `plan-strip${u ? ' member' : ''}`;
+  $('#planStrip').innerHTML = u
+    ? `<span class="ps-txt"><b>${esc(u.name || u.email)}님, 모든 기능이 열려 있어요.</b> 로그인 회원(무료) — 미국 증서 · 그림·PDF·문서 메일머지 · 한글(HWPX)·PNG · 도장 배경 지우기 · 장수·프로젝트 제한 없음</span>`
+    : `<span class="ps-txt"><b>지금은 로그인 없이 쓰는 중이에요.</b> 한국 상장을 PDF·인쇄로 한 번에 ${GUEST_LIMITS.sheets}장, 프로젝트 ${GUEST_LIMITS.projects}개까지 만들 수 있어요. 로그인하면(무료) 미국 증서, 메일머지, 한글(HWPX) 내보내기, 도장 배경 지우기가 열리고 제한이 없어져요.</span><button class="small ghost" type="button" data-plan>플랜 비교</button><button class="small primary" type="button" data-login>로그인</button>`;
+}
+async function afterAuthChange() {
+  renderAccount();
+  if (state.stamp && state.stamp.src) { await processStamp(); renderStampCard(); }
+  if (state.step === 0) renderHome();
+  else refresh();
+}
+function bindAccount() {
+  $('#authSignup').href = WSNS_LINKS.signup;
+  $('#authForgot').href = WSNS_LINKS.forgot;
+  $('#acctPage').href = WSNS_LINKS.account;
+  $('#acctBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    if (!isMember()) { openAuth(); return; }
+    const m = $('#acctMenu');
+    m.hidden = !m.hidden;
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('#acctMenu')) closeAcctMenu(); });
+  $('#acctPlan').addEventListener('click', () => openAuth());
+  $('#acctOut').addEventListener('click', async () => { closeAcctMenu(); await signOut(); setStatus('로그아웃했어요.'); });
+  $('#authClose').addEventListener('click', closeAuth);
+  $('#authGuest').addEventListener('click', closeAuth);
+  $('#authBack').addEventListener('mousedown', e => { if (e.target === $('#authBack')) closeAuth(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#authBack').hidden) closeAuth(); });
+  $('#authAlt').addEventListener('click', e => {
+    if (!e.target.closest('#authAltBtn') || !authAlt) return;
+    const run = authAlt.run;
+    closeAuth();
+    run();
+  });
+  $('#planStrip').addEventListener('click', e => {
+    if (e.target.closest('[data-login]') || e.target.closest('[data-plan]')) openAuth();
+  });
+  $('#authForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const email = $('#authEmail').value.trim(), pw = $('#authPw').value;
+    const err = $('#authErr');
+    if (!email || !pw) { err.textContent = '이메일과 비밀번호를 넣어 주세요.'; err.hidden = false; return; }
+    const btn = $('#authSubmit');
+    btn.disabled = true; btn.textContent = '로그인 중…'; err.hidden = true;
+    try {
+      const u = await signIn(email, pw);
+      $('#authPw').value = '';
+      closeAuth();
+      setStatus(`${u.name || u.email}님, 로그인했어요. 모든 기능이 열렸어요.`);
+    } catch (ex) {
+      err.textContent = authErrorText(ex); err.hidden = false;
+    } finally {
+      btn.disabled = false; btn.textContent = '로그인';
+    }
+  });
+  onAuthChange(() => { afterAuthChange(); });
+}
+
 // ---------- 시작 ----------
 function applyViewToggles() {
   $('#showBg').checked = state.showBg;
@@ -2824,6 +2962,8 @@ function applyViewToggles() {
 }
 
 bind();
+bindAccount();
+renderAccount();
 new ResizeObserver(() => { applyZoom(); positionEditor(); }).observe($('#canvas'));
 migrateOld();
 applyViewToggles();
@@ -2831,3 +2971,6 @@ resetHistory();
 window.__sa = { state: () => state, project: () => projectId };
 // 늘 처음 화면(프로젝트 목록)에서 시작한다
 setStep(0);
+initAuth();
+// 처음 온 사람에게 한 번: 로그인 창(로그인 없이 쓰기도 바로 옆에)
+try { if (!isMember() && !localStorage.getItem('sense-award:welcomed')) openAuth(); } catch {}
