@@ -647,3 +647,33 @@ body[data-step="0"] .step-tabs, body[data-step="0"] .hist, body[data-step="0"] #
 .range-info { margin: 8px 0 0; font-size: 12.5px; font-weight: 600; color: var(--accent); }
 .range-info.warn { color: oklch(0.55 0.17 40); }
 #recList li.out { opacity: .38; }
+
+/* 메일머지: 그림·PDF 배경 · 문서 */
+.drop { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 22px 16px; border: 2px dashed var(--border); border-radius: 12px; background: var(--bg); color: var(--text); text-align: center; cursor: pointer; min-height: 0; }
+.drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 6%, var(--bg)); }
+.drop b { font-size: 14px; }
+.drop .hint { font-weight: 400; line-height: 1.5; }
+.bg-info { margin-top: 8px; font-size: 12.5px; color: var(--muted); line-height: 1.5; word-break: break-all; }
+.bg-info b { color: var(--text); }
+.bg-acts { display: flex; gap: 6px; margin-top: 8px; }
+#paperKey { width: 100%; }
+.sub-h { margin-top: 14px; }
+.doc-vars { display: flex; flex-wrap: wrap; gap: 6px; }
+.doc-vars .dv { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border-radius: 99px; font-size: 12.5px; font-weight: 700; background: color-mix(in oklch, var(--accent) 10%, var(--panel)); color: var(--accent); }
+.doc-vars .dv em { font-style: normal; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--panel); }
+.doc-vars .dv.miss { background: oklch(0.95 0.04 50); color: oklch(0.5 0.15 45); }
+.doc-page { width: 100%; aspect-ratio: 210 / 297; overflow: auto; background: #fff; color: #222; border-radius: 4px; box-shadow: var(--shadow-card); padding: 9% 10%; font-size: 13px; line-height: 1.75; font-family: 'Nanum Myeongjo', serif; }
+.doc-page p, .doc-paper p { margin: 0 0 .25em; white-space: pre-wrap; }
+.doc-page mark, .doc-paper mark { background: color-mix(in oklch, var(--accent, #7c5cf0) 16%, #fff); color: inherit; border-radius: 3px; padding: 0 2px; box-shadow: inset 0 -2px 0 color-mix(in oklch, var(--accent, #7c5cf0) 55%, transparent); }
+.doc-page mark.miss, .doc-paper mark.miss { background: oklch(0.95 0.05 50); box-shadow: inset 0 -2px 0 oklch(0.65 0.15 45); }
+.doc-empty { color: #888; text-align: center; margin-top: 40%; }
+.doc-stage { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; padding: 14px; }
+.doc-nav { display: flex; align-items: center; justify-content: center; gap: 12px; font-weight: 700; font-size: 13.5px; }
+.doc-paper { flex: 1; min-height: 0; overflow: auto; max-width: 760px; width: 100%; margin: 0 auto; background: #fff; color: #222; border-radius: 6px; box-shadow: var(--shadow-card); padding: 48px 56px; font-size: 14.5px; line-height: 1.8; font-family: 'Nanum Myeongjo', serif; }
+.doc-note { text-align: center; }
+.doc-mode { margin: 10px 0 6px; }
+.doc-name { display: grid; gap: 4px; margin: 8px 0; }
+.rb-add { white-space: nowrap; font-weight: 700; }
+body[data-tpl="doc"] #ribbon { display: none; }
+.bg-empty text { fill: #8a8aa0; font-family: sans-serif; }
+.proj-thumb.tpl-custom, .proj-thumb.tpl-doc { background-size: cover; }

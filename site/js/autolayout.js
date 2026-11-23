@@ -93,6 +93,8 @@ function titleWidth(n, T) {
  */
 export function computeAutoLayout(doc, store, border, paper = PAPER, index) {
   if (doc.template === 'us') return computeUS(doc, store, border, paper, index);
+  // 그림 배경·문서 메일머지는 자동 배치 없이 사용자가 놓은 자리 그대로
+  if (doc.template === 'custom' || doc.template === 'doc') return { fields: {}, stamp: { size: (doc.stamp && doc.stamp.size) || 20 }, sizes: {} };
   const st = textStats(doc, store, index);
   const em = id => Math.max(st[id] ? st[id].maxEm : 0, 1);
   const lineN = id => (st[id] && st[id].pars ? st[id].pars.filter(x => x > 0).length : 1) || 1;

@@ -50,6 +50,15 @@ export async function buildPdf(opts) {
   }
   const embedFont = async (handle) => embedded.get(handle.key);
   const stampImg = stampPng ? await pdf.embedPng(stampPng) : null;
+  // 배경: { pdf: Uint8Array(원본) | null, img: Uint8Array, png: bool, box: {x,y,w,h} }
+  let bgEmb = null;
+  if (opts.background) {
+    const bg = opts.background;
+    try {
+      if (bg.pdf) [bgEmb] = await pdf.embedPdf(bg.pdf, [0]);
+    } catch { bg.pdf = null; }
+    if (!bgEmb && bg.img) bgEmb = bg.png ? await pdf.embedPng(bg.img) : await pdf.embedJpg(bg.img);
+  }
   const markImgs = [];
   for (const mk of opts.marks || []) markImgs.push({ ...mk, img: await pdf.embedPng(mk.png) });
   const W = paper.w * MM;
@@ -61,6 +70,12 @@ export async function buildPdf(opts) {
     const page = pdf.addPage([W, H]);
     // 배율 보정: 용지 가운데를 기준으로 전체를 키우거나 줄인다
     page.pushOperators(pushGraphicsState(), concatTransformationMatrix(scale, 0, 0, scale, (W / 2) * (1 - scale), (H / 2) * (1 - scale)));
+    // 메일머지 배경(그림 또는 원본 PDF 쪽을 벡터 그대로)
+    if (bgEmb) {
+      const b = opts.background.box;
+      const at = { x: (b.x + offset.x) * MM, y: H - (b.y + b.h + offset.y) * MM, width: b.w * MM, height: b.h * MM };
+      if (opts.background.pdf) page.drawPage(bgEmb, at); else page.drawImage(bgEmb, at);
+    }
     if (border) {
       for (const s of borderShapes(border, paper)) {
         const o = { x: offset.x * MM, y: H - offset.y * MM, scale: MM };

@@ -55,6 +55,48 @@ function usMarks(border = US_BORDER, paper = PAPER) {
   ];
 }
 
+// ---- 그림·PDF 배경 메일머지 ----------------------------------------------------------
+// 초대장·이름표·수료증 같은 디자인을 배경으로 깔고, 글 상자 위치는 사용자가 정한다(자동 배치 없음)
+export const CUSTOM_SAMPLE = {
+  columns: ['이름', '소속', '날짜'],
+  rows: [
+    ['권웨스', '3학년 1반', '2026. 11. 23.'],
+    ['김센스', '5학년 2반', '2026. 11. 23.'],
+  ],
+};
+const CUSTOM_FIELD_DEFS = [
+  { id: 't1', label: '소속', text: '{{소속}}', font: 'nanum-gothic', align: 'center', color: '#333333' },
+  { id: 't2', label: '이름', text: '{{이름}}', font: 'nanum-myeongjo', bold: true, align: 'center', color: '#111111' },
+  { id: 't3', label: '날짜', text: '{{날짜}}', font: 'nanum-gothic', align: 'center', color: '#333333' },
+];
+/** 그림 배경 양식의 처음 글 상자 자리(용지 비율로) */
+export function placeCustomFields(fields, paper) {
+  const { w, h } = paper;
+  const k = Math.max(0.5, Math.sqrt(Math.min(w, h) / 210)); // 작은 용지(이름표·카드)에서도 읽히는 크기
+  const spec = {
+    t1: { cy: 0.40, ww: 0.6, size: 16 },
+    t2: { cy: 0.48, ww: 0.5, size: 30 },
+    t3: { cy: 0.62, ww: 0.5, size: 14 },
+  };
+  for (const f of fields) {
+    const sp = spec[f.id];
+    if (!sp) continue;
+    const size = Math.round(sp.size * k * 2) / 2;
+    const bh = size * 0.3528 * 1.7;
+    Object.assign(f, { x: Math.round(w * (1 - sp.ww) / 2 * 10) / 10, y: Math.round((h * sp.cy - bh / 2) * 10) / 10, w: Math.round(w * sp.ww * 10) / 10, h: Math.round(bh * 10) / 10, size, minSize: Math.max(6, Math.round(size * 0.6)), manual: true });
+  }
+  return fields;
+}
+
+// ---- 한글·워드 문서 메일머지 ---------------------------------------------------------
+export const DOC_SAMPLE = {
+  columns: ['이름', '소속', '날짜'],
+  rows: [
+    ['권웨스', '3학년 1반', '2026. 11. 23.'],
+    ['김센스', '5학년 2반', '2026. 11. 23.'],
+  ],
+};
+
 // ---- 양식 목록 ---------------------------------------------------------------
 export const TEMPLATES = {
   kr: {
@@ -65,11 +107,22 @@ export const TEMPLATES = {
     id: 'us', name: '미국식 증서', desc: 'Certificate of Recognition · 필기체 제목 · 서명선 · 인장 마크',
     defs: US_FIELD_DEFS, sample: US_SAMPLE, border: US_BORDER, bgInPdf: true, stamp: false, marks: usMarks,
   },
+  custom: {
+    id: 'custom', name: '그림·PDF 메일머지', desc: '초대장·이름표·카드 디자인(그림·PDF) 위에 {{변수}} 글 상자',
+    defs: CUSTOM_FIELD_DEFS, sample: CUSTOM_SAMPLE, border: BORDER_DEFAULT, bgInPdf: true, stamp: false, marks: () => [],
+    steps: ['배경', '명단', '글 상자', '확인·내보내기'], free: true,
+  },
+  doc: {
+    id: 'doc', name: '한글·워드 메일머지', desc: '{{변수}}를 넣은 한글(HWPX)·워드(DOCX) 문서를 명단만큼',
+    defs: [], sample: DOC_SAMPLE, border: BORDER_DEFAULT, bgInPdf: false, stamp: false, marks: () => [],
+    steps: ['문서', '명단', '미리보기', '내보내기'], free: true,
+  },
 };
 
 export const tpl = id => TEMPLATES[id] || TEMPLATES.kr;
 
 export function fieldsFor(id) {
   // 자리값은 자동 배치가 곧바로 채운다
-  return tpl(id).defs.map(d => ({ ...FIELD_BASE, ...d, x: 30, y: 30, w: 100, h: 10, size: 16, minSize: 12 }));
+  const fs = tpl(id).defs.map(d => ({ ...FIELD_BASE, ...d, x: 30, y: 30, w: 100, h: 10, size: 16, minSize: 12 }));
+  return id === 'custom' ? placeCustomFields(fs, PAPER) : fs;
 }

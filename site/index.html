@@ -59,10 +59,11 @@
       <aside class="paper-side">
         <div class="page-head compact">
           <small>1단계</small>
-          <h1>상장 용지</h1>
+          <h1 id="s1Title">상장 용지</h1>
           <p class="lead" id="paperLead">이 용지는 시판되는 보통 상장 용지 규격(A4, 210×297mm)을 따릅니다. 금색 테두리는 화면에서만 보이는 안내선이라 인쇄에는 들어가지 않아요.</p>
-          <p class="lead"><b>테두리를 조정하려면 아래의 수치를 조정하세요.</b> 갖고 있는 상장 용지의 테두리를 자로 재서 맞추면, 다음 단계에서 그 테두리를 배경으로 글이 자동 배치돼요.</p>
+          <p class="lead" id="paperLead2"><b>테두리를 조정하려면 아래의 수치를 조정하세요.</b> 갖고 있는 상장 용지의 테두리를 자로 재서 맞추면, 다음 단계에서 그 테두리를 배경으로 글이 자동 배치돼요.</p>
         </div>
+        <div class="tpl-pane" data-for="kr us">
         <div class="reset-all">
           <button class="small" id="borderReset">견본 디자인으로 전체 초기화</button>
           <span class="hint" id="borderNote"></span>
@@ -116,6 +117,46 @@
             <div class="bctl-in"><input type="range" data-b="pad" aria-label="테두리 안쪽 여백"><span class="num"><input type="number" id="b-pad" data-b="pad"><em>mm</em></span></div>
           </div>
 
+        </div>
+        </div>
+        <!-- 그림·PDF 배경 메일머지 -->
+        <div class="tpl-pane" data-for="custom" hidden>
+          <div class="card">
+            <h3>배경 그림 · PDF</h3>
+            <button class="drop" id="bgDrop" type="button"><b>그림이나 PDF를 끌어 놓거나 눌러서 고르세요</b><span class="hint">PNG · JPG · WEBP · PDF(첫 쪽) — 초대장, 이름표, 수료증, 카드, 안내장 디자인</span></button>
+            <input type="file" id="bgFile" accept="image/*,application/pdf,.pdf" hidden>
+            <div class="bg-info" id="bgInfo"></div>
+            <div class="bg-acts" id="bgActs" hidden><button class="small" id="bgChange">배경 바꾸기</button><button class="small ghost danger" id="bgRemove">배경 빼기</button></div>
+          </div>
+          <div class="card">
+            <h3>용지 크기</h3>
+            <select id="paperKey" aria-label="용지 크기"></select>
+            <div class="row two" id="paperCustom" hidden>
+              <label class="lbl">너비(mm)<input type="number" id="paperW" min="30" max="1000" step="1"></label>
+              <label class="lbl">높이(mm)<input type="number" id="paperH" min="30" max="1000" step="1"></label>
+            </div>
+            <h3 class="sub-h">배경 맞추기</h3>
+            <div class="seg" id="bgFitSeg"></div>
+            <p class="hint">용지와 배경의 비율이 다르면 '다 보이게'는 여백이, '꽉 채우기'는 가장자리 잘림이 생겨요. 용지 크기를 바꾸면 글 상자도 같은 비율로 따라 옮겨져요.</p>
+          </div>
+          <div class="card">
+            <h3>글 상자</h3>
+            <p class="hint">3단계에서 글 상자를 배경의 빈칸 위로 옮기고 {{이름}}처럼 변수를 넣어요. 상자는 리본의 <b>글 상자 추가</b>나 빈 곳 오른쪽 클릭으로 더 넣고, 오른쪽 클릭 → 글 상자 지우기로 뺄 수 있어요.</p>
+          </div>
+        </div>
+        <!-- 한글·워드 문서 메일머지 -->
+        <div class="tpl-pane" data-for="doc" hidden>
+          <div class="card">
+            <h3>메일머지할 문서</h3>
+            <button class="drop" id="docDrop" type="button"><b>한글(.hwpx) · 워드(.docx) 문서를 끌어 놓거나 눌러서 고르세요</b><span class="hint">문서 안 바꿀 자리에 {{이름}}, {{소속}}처럼 써 두세요. 한글 .hwp는 한글에서 "다른 이름으로 저장 → HWPX"로 바꿔 주세요.</span></button>
+            <input type="file" id="docFile" accept=".hwpx,.docx" hidden>
+            <div class="bg-info" id="docInfo"></div>
+          </div>
+          <div class="card">
+            <h3>문서에서 찾은 변수</h3>
+            <div class="doc-vars" id="docVars"></div>
+            <p class="hint" id="docVarsHint"></p>
+          </div>
         </div>
       </aside>
     </div>
@@ -178,6 +219,7 @@
     <div class="ribbon" id="ribbon">
       <div class="rb-group">
         <select id="rbField" title="고칠 칸" class="rb-field"></select>
+        <button class="rb-add" id="rbAddBox" title="글 상자 추가 (가운데에 {{변수}} 상자)">+ 글 상자</button>
       </div>
       <div class="rb-group">
         <select id="rbFont" title="글꼴" class="rb-font"></select>
@@ -300,7 +342,17 @@
       </div>
     </div>
     <div class="stage-slot" data-slot="3"></div>
-    <div class="page-foot"><button class="ghost" data-goto="2">이전</button><span class="foot-hint">상자를 눌러 고르고 두 번 누르면 문구 편집 · Shift·Ctrl+누르기나 빈 곳 끌기로 여러 개 · 끌 때 Shift는 수평·수직 고정 · Ctrl+휠 확대</span><button class="primary" data-goto="4">다음: 확인·내보내기</button></div>
+    <!-- 문서 메일머지 미리보기(2~4단계에서 상장 화면 대신) -->
+    <div class="doc-stage" id="docStage" hidden>
+      <div class="doc-nav">
+        <button class="small" id="docPrev" aria-label="앞 장">‹</button>
+        <span id="docNavLabel"></span>
+        <button class="small" id="docNext" aria-label="다음 장">›</button>
+      </div>
+      <div class="doc-paper" id="docPaper"></div>
+      <p class="hint doc-note">글 미리보기예요. 글꼴·표·그림 같은 모양은 원본 문서 그대로 나가요. 바뀐 자리는 색으로 표시했어요.</p>
+    </div>
+    <div class="page-foot"><button class="ghost" data-goto="2">이전</button><span class="foot-hint" id="s3Hint">상자를 눌러 고르고 두 번 누르면 문구 편집 · Shift·Ctrl+누르기나 빈 곳 끌기로 여러 개 · 끌 때 Shift는 수평·수직 고정 · Ctrl+휠 확대</span><button class="primary" data-goto="4">다음: 확인·내보내기</button></div>
   </section>
 
   <!-- 4. 확인·내보내기 -->
@@ -310,11 +362,11 @@
       <aside class="inspector">
         <div class="page-head compact">
           <small>4단계</small>
-          <h1>한 장씩 확인하고 내보내요</h1>
-          <p>미리보기에서 글자를 누르면 <b>그 상장만</b> 내용을 직접 고칠 수 있어요.</p>
+          <h1 id="s4Title">한 장씩 확인하고 내보내요</h1>
+          <p id="s4Lead">미리보기에서 글자를 누르면 <b>그 상장만</b> 내용을 직접 고칠 수 있어요.</p>
         </div>
         <div class="card list-card">
-          <div class="list-head"><h3>상장 목록</h3><span class="hint" id="listSum"></span></div>
+          <div class="list-head"><h3 id="listTitle">상장 목록</h3><span class="hint" id="listSum"></span></div>
           <ol class="rec-list" id="recList"></ol>
         </div>
         <div class="card warn" id="warnBox" hidden></div>
@@ -330,15 +382,24 @@
             <p class="hint">쉼표로 나누고 이어진 번호는 1-3이나 1~3으로 써요. 5-는 5번부터 끝까지, -3은 처음부터 3번까지.</p>
           </div>
           <p class="range-info" id="rangeInfo"></p>
-          <div class="export-buttons">
+          <div class="tpl-pane" data-for="doc" hidden>
+            <div class="seg doc-mode" id="docModeSeg">
+              <button data-mode="combined" class="on">한 파일로 합치기</button>
+              <button data-mode="separate">한 부씩 따로 (ZIP)</button>
+            </div>
+            <label class="lbl doc-name" id="docNameRow" hidden>파일 이름<input type="text" id="docNameTpl" placeholder="{{이름}}"><span class="hint">명단 값으로 이름 붙이기 · 예: {{이름}}_안내문</span></label>
+            <div class="export-buttons"><button class="primary big" id="docMergeBtn">문서 만들기</button></div>
+          </div>
+          <div class="export-buttons tpl-pane" data-for="kr us custom">
             <button class="primary big" id="printBtn" title="이 화면에서 바로 인쇄(보정값 그대로 적용)">바로 인쇄</button>
             <button class="primary big" id="pdfBtn">PDF 내려받기</button>
             <button class="primary big alt" id="hwpxBtn">한글(HWPX) 내려받기</button>
+            <button class="big ghost" id="pngBtn" title="장마다 PNG 그림으로 묶어 ZIP으로">그림(PNG) 묶음 내려받기</button>
           </div>
-          <label class="check"><input type="checkbox" id="bgInPdf"> 테두리도 함께 인쇄 (빈 종이에 인쇄할 때)</label>
+          <label class="check tpl-pane" data-for="kr us custom"><input type="checkbox" id="bgInPdf"> <span id="bgInPdfLabel">테두리도 함께 인쇄 (빈 종이에 인쇄할 때)</span></label>
           <div class="progress" id="progress" hidden><div class="bar"><i></i></div><span></span></div>
         </div>
-        <div class="card print-card">
+        <div class="card print-card tpl-pane" data-for="kr us custom">
           <h3>인쇄 맞추기</h3>
           <p class="hint">PDF는 A4 실제 크기로 만들어지고, 인쇄 창이 <b>실제 크기(100%)</b>로 열리도록 설정돼 있어요. 인쇄 창에서 "용지에 맞춤"이나 "축소"를 고르면 상장 용지 칸과 어긋나니 꼭 <b>실제 크기</b>로 인쇄하세요.</p>
           <p class="hint safe" id="printSafe"></p>
@@ -364,7 +425,7 @@
           </div>
           <p class="hint" id="printNote"></p>
         </div>
-        <div class="card">
+        <div class="card tpl-pane" data-for="kr us custom">
           <h3>한글에서 열 때</h3>
           <p class="hint">한글 파일에는 글꼴이 들어가지 않아요. 같은 모양으로 보려면 쓴 글꼴을 PC에 설치해 주세요.</p>
           <ul class="font-links" id="fontLinks"></ul>
