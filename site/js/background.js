@@ -22,7 +22,8 @@ export const BG_FITS = [
 ];
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const MAX_PDF_B64 = 4.5 * 1024 * 1024; // 저장 공간 때문에 원본 PDF는 이 크기까지만 보관
+const MAX_PDF_B64 = 4.5 * 1024 * 1024;
+export const MAX_PAGES = 30;            // 배경으로 쓰는 PDF 쪽 수 한도 // 저장 공간 때문에 원본 PDF는 이 크기까지만 보관
 
 function readAs(file, how) {
   return new Promise((res, rej) => {
@@ -67,27 +68,36 @@ function b64(buf) {
  * 배경 파일 읽기
  * 반환: { kind: 'image'|'pdf', name, src(그림 data URL), pxW, pxH, mmW?, mmH?(PDF 쪽 크기), pdf?(원본 base64), pages? }
  */
-export async function loadBackground(file) {
+export async function loadBackground(file, onPage) {
   const name = file.name || '';
   const isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(name);
   if (isPdf) {
     const buf = await readAs(file, 'buf');
     const lib = await loadPdfjs();
     const doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
-    const page = await doc.getPage(1);
-    const vp1 = page.getViewport({ scale: 1 });
-    const scale = 2600 / Math.max(vp1.width, vp1.height);
-    const vp = page.getViewport({ scale });
-    const cv = document.createElement('canvas');
-    cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
-    const g = cv.getContext('2d');
-    g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
-    await page.render({ canvasContext: g, viewport: vp }).promise;
+    const n = Math.min(doc.numPages, MAX_PAGES);
+    // 쪽이 많을수록 저장 공간 때문에 화면용 그림을 조금 작게(PDF로 내보낼 때는 원본 벡터를 쓴다)
+    const long = n === 1 ? 2600 : n <= 3 ? 2200 : n <= 8 ? 1700 : 1300;
+    const pageImgs = [];
+    for (let p = 1; p <= n; p++) {
+      const page = await doc.getPage(p);
+      const vp1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: long / Math.max(vp1.width, vp1.height) });
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      const g = cv.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+      await page.render({ canvasContext: g, viewport: vp }).promise;
+      pageImgs.push({
+        src: cv.toDataURL('image/jpeg', n === 1 ? 0.92 : 0.85), pxW: cv.width, pxH: cv.height,
+        mmW: Math.round(vp1.width / 72 * 25.4 * 10) / 10, mmH: Math.round(vp1.height / 72 * 25.4 * 10) / 10,
+      });
+      if (onPage) onPage(p, n);
+    }
     const enc = b64(buf);
     return {
-      kind: 'pdf', name, src: cv.toDataURL('image/jpeg', 0.92), pxW: cv.width, pxH: cv.height,
-      mmW: Math.round(vp1.width / 72 * 25.4 * 10) / 10, mmH: Math.round(vp1.height / 72 * 25.4 * 10) / 10,
-      pdf: enc.length <= MAX_PDF_B64 ? enc : null, pages: doc.numPages,
+      kind: 'pdf', name, ...pageImgs[0],
+      pdf: enc.length <= MAX_PDF_B64 ? enc : null, pages: doc.numPages, pageImgs,
     };
   }
   const url = await readAs(file, 'url');
@@ -97,6 +107,13 @@ export async function loadBackground(file) {
   cv.width = Math.max(1, Math.round(im.naturalWidth * k)); cv.height = Math.max(1, Math.round(im.naturalHeight * k));
   cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
   return { kind: 'image', name, src: canvasUrl(cv), pxW: cv.width, pxH: cv.height };
+}
+
+/** 여러 쪽 PDF에서 p쪽(0부터)을 배경 하나처럼 쓰는 보기(없으면 첫 쪽) */
+export function bgOfPage(bg, p = 0) {
+  if (!bg || !bg.pageImgs || !bg.pageImgs.length) return bg;
+  const pg = bg.pageImgs[Math.max(0, Math.min(bg.pageImgs.length - 1, p | 0))];
+  return { ...bg, ...pg, pageIndex: bg.pageImgs.indexOf(pg) };
 }
 
 /** 배경 크기로 정한 용지(mm): PDF는 쪽 크기 그대로, 그림은 긴 변을 297mm로 */

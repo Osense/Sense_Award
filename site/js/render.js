@@ -15,18 +15,22 @@ export function fontKeysFor(doc) {
  * 반환: { fields: [...배치 결과], stamp: {x,y,w,h}|null, missing: [키], needFallback, pending }
  */
 export function computeRecord(doc, index, store) {
-  const row = doc.rows[index] || [];
-  const out = { fields: [], stamp: null, missing: [], needFallback: false, pending: false };
+  // 여러 쪽 배경: 가상 번호(index)를 명단 줄(ri)과 쪽(page)으로 나눈다
+  const ri = doc.rowOf ? doc.rowOf(index) : index;
+  const page = doc.pageOf ? doc.pageOf(index) : null;
+  const row = doc.rows[ri] || [];
+  const out = { fields: [], stamp: null, missing: [], needFallback: false, pending: false, row: ri, page };
   const missing = new Set();
   const fallback = store.get(variantKey(FALLBACK_FONT, false));
   // 장마다 자동 배치가 다르면(본문 길이에 따라 글자 크기가 바뀜) 그 장의 칸 목록을 쓴다
-  const per = doc.layoutFor ? doc.layoutFor(index) : null;
+  const per = doc.layoutFor ? doc.layoutFor(ri) : null;
   const fieldList = per ? per.fields : doc.fields;
   for (const f of fieldList) {
+    if (page != null && (f.page || 0) !== page) continue;
     // 이 상장만 직접 고친 글이 있으면 그것을 쓴다
-    const ov = doc.overrides && doc.overrides[index] ? doc.overrides[index][f.id] : undefined;
+    const ov = doc.overrides && doc.overrides[ri] ? doc.overrides[ri][f.id] : undefined;
     const edited = typeof ov === 'string';
-    const { text, missing: ms } = edited ? { text: ov, missing: [] } : fillTemplate(f.text, doc.columns, row, index);
+    const { text, missing: ms } = edited ? { text: ov, missing: [] } : fillTemplate(f.text, doc.columns, row, ri);
     ms.forEach(m => missing.add(m));
     const font = store.get(variantKey(f.font, f.bold));
     if (!font) { out.pending = true; out.fields.push({ field: f, text, edited, pending: true }); continue; }

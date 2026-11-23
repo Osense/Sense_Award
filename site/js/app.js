@@ -8,7 +8,7 @@ import { buildPdf, buildTestPage } from './export-pdf.js';
 import { subsetFont } from './subset.js';
 import { Sheet } from './sheet.js';
 import { TEMPLATES, tpl, fieldsFor, placeCustomFields } from './templates.js';
-import { PAPER_PRESETS, BG_FITS, loadBackground, paperForBg, bgBox, resolvePaper, pdfBytes, bgPng } from './background.js';
+import { PAPER_PRESETS, BG_FITS, MAX_PAGES, loadBackground, paperForBg, bgBox, bgOfPage, resolvePaper, pdfBytes, bgPng } from './background.js';
 import { loadDocument, inspectDocument, previewParagraphs, mergeDocument } from './docmerge.js';
 import { MARK_SHAPES, newMark, markSvg, markPath, clampMark, bakeMark } from './marks.js';
 import { removeBackground, hasTransparency } from './bgremove.js';
@@ -39,7 +39,7 @@ function freshState(templateId = 'kr') {
     marks: T.marks(T.border),
     // 그림·PDF 메일머지: 용지 크기와 배경 / 문서 메일머지: 올린 문서
     paper: T.id === 'custom' ? { key: 'A4P', w: 210, h: 297 } : null,
-    bg: null, bgFit: 'contain',
+    bg: null, bgFit: 'contain', bgPage: 0, bgPages: 'one',
     docFile: null, docMode: 'combined', docNameTpl: '{{이름}}',
     current: 0,
     overrides: [],
@@ -108,7 +108,7 @@ function persist() {
   catch {
     // 이미지가 커서 못 담으면 이미지만 빼고 저장
     try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false } })); } catch {
-      try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false }, marks: state.marks.map(m => ({ ...m, src: null, orig: null })), bg: state.bg ? { ...state.bg, pdf: null } : null })); } catch {}
+      try { localStorage.setItem(PKEY(projectId), JSON.stringify({ ...state, stamp: { ...state.stamp, src: null, png: null, enabled: false }, marks: state.marks.map(m => ({ ...m, src: null, orig: null })), bg: state.bg ? { ...bgOfPage(state.bg, state.bgPage || 0), pdf: null, pageImgs: null } : null })); } catch {}
     }
     setStatus('저장 공간이 모자라 그림 일부를 빼고 저장했어요. 쓰지 않는 프로젝트를 지워 주세요.', 'warn');
   }
@@ -264,21 +264,46 @@ function areaRect() {
 }
 const isDoc = () => state.template === 'doc';
 const isCustom = () => state.template === 'custom';
+// ---- 여러 쪽 PDF 배경
+// 'one': 고른 한 쪽만 배경 / 'all': 명단 한 줄마다 PDF 모든 쪽을 한 벌로(글 상자·마크는 쪽마다 따로)
+const bgPageCount = () => (isCustom() && state.bg && state.bg.pageImgs ? state.bg.pageImgs.length : 1);
+const multiBg = () => bgPageCount() > 1 && state.bgPages === 'all';
+const pageCount = () => (multiBg() ? bgPageCount() : 1);
+let viewPage = 0; // 3·4단계에서 보고 있는 쪽(여러 쪽 한 벌일 때)
+const curPage = () => Math.min(viewPage, pageCount() - 1);
+// 화면에 쓸 배경(쪽 p): 한 쪽 모드는 고른 쪽, 한 벌 모드는 p쪽
+const curBg = (p = curPage()) => (state.bg ? bgOfPage(state.bg, multiBg() ? p : (state.bgPage || 0)) : null);
+const onPage = (x, p = curPage()) => !multiBg() || (x.page || 0) === p;
+// 내보내기용: 가상 번호 = 명단 줄 × 쪽 수 + 쪽
+function sheetDoc() {
+  const d = docView();
+  const P = pageCount();
+  d.rowOf = v => Math.floor(v / P);
+  d.pageOf = v => (multiBg() ? v % P : null);
+  return d;
+}
+const sheetIndices = rows => rows.flatMap(i => Array.from({ length: pageCount() }, (_, p) => i * pageCount() + p));
+const sheetWord = n => (multiBg() ? `${n}벌(${n * pageCount()}쪽)` : `${n}장`);
 const tplBorder = () => tpl(state.template).border;
 const docView = () => {
   const d = { template: state.template, fields: state.fields, columns: state.columns, rows: state.rows, stamp: state.stamp, overrides: state.overrides };
   // 장마다 그 장의 글 길이로 자동 배치(짧은 본문은 커지고 긴 본문은 작아짐)
   d.layoutFor = i => layoutForRecord(d, store, state.border, i);
+  if (multiBg()) d.pageOf = () => curPage();
   return d;
 };
 const bgHref = () => svgDataUrl(borderSvg(state.border));
 // 미리보기 바탕: 상장은 테두리, 그림 메일머지는 올린 배경(없으면 안내)
+function bgImageSvg(bg) {
+  if (!bg) return '';
+  const b = bgBox(bg, paperSize(), state.bgFit);
+  return `<image href="${bg.src}" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" preserveAspectRatio="none"/>`;
+}
 function paperBgSvg() {
   const { w, h } = paperSize();
   if (isCustom()) {
     if (!state.bg) return `<g class="bg-empty"><rect x="0" y="0" width="${w}" height="${h}" fill="#f6f6fa"/><text x="${w / 2}" y="${h / 2 - 3}" text-anchor="middle" font-size="${Math.max(4, w / 32)}">1단계에서 배경 그림이나 PDF를 올려 주세요</text><text x="${w / 2}" y="${h / 2 + 5}" text-anchor="middle" font-size="${Math.max(3, w / 48)}">글 상자만으로도 내보낼 수 있어요</text></g>`;
-    const b = bgBox(state.bg, paperSize(), state.bgFit);
-    return `<image href="${state.bg.src}" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" preserveAspectRatio="none"/>`;
+    return bgImageSvg(curBg());
   }
   return `<image href="${bgHref()}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none"/>`;
 }
@@ -299,7 +324,7 @@ function recName(i) {
 
 // ---------- 되돌리기·다시 하기 ----------
 // 문서 내용(칸·명단·고친 글·테두리·도장 설정)만 기록한다. 화면 상태(단계·확대)는 기록하지 않는다.
-const HIST_KEYS = ['fields', 'columns', 'rows', 'overrides', 'border', 'stamp', 'offset', 'measured', 'marks', 'paper', 'bgFit'];
+const HIST_KEYS = ['fields', 'columns', 'rows', 'overrides', 'border', 'stamp', 'offset', 'measured', 'marks', 'paper', 'bgFit', 'bgPage', 'bgPages'];
 const HIST_MAX = 120;
 let undoStack = [];
 let redoStack = [];
@@ -675,7 +700,7 @@ function renderRibbon() {
   const f = selField();
   const many = selIds().length > 1;
   $('#rbField').innerHTML = (many ? `<option value="" selected>${selIds().length}개 칸</option>` : `<option value="">칸 고르기</option>`)
-    + state.fields.map(x => `<option value="${x.id}" ${!many && f && f.id === x.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
+    + state.fields.map(x => `<option value="${x.id}" ${!many && f && f.id === x.id ? 'selected' : ''}>${esc(x.label)}${multiBg() ? ` · ${(x.page || 0) + 1}쪽` : ''}</option>`).join('');
   const allSame = state.fields.length && state.fields.every(x => x.font === state.fields[0].font);
   const fontSel = f ? f.font : (allSame ? state.fields[0].font : '');
   $('#rbFont').innerHTML = (f ? '' : `<option value="" ${fontSel ? '' : 'selected'} disabled>모든 칸 글꼴…</option>`)
@@ -824,6 +849,7 @@ async function renderPreview() {
   const n = state.rows.length;
   if (state.current >= n) state.current = Math.max(0, n - 1);
   $('#recPos').textContent = n ? `${state.current + 1} / ${n}` : '명단 없음';
+  renderPageNav();
   $('#recWho').textContent = n ? recName(state.current) : '';
   syncOverrides();
   try { await ensureFonts(); } catch (e) { setStatus('글꼴을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'); return; }
@@ -847,7 +873,7 @@ async function renderPreview() {
   // 마크 프레임: 그림이 있으면 틀 모양으로 잘라 보여 주고, 빈 틀은 편집할 때만 점선으로
   // 빈 틀(마크·도장)은 화면에서만 점선으로 늘 보인다(인쇄·PDF·한글에는 안 들어감)
   const showPh = true;
-  let marks = `<g class="mark-layer">${state.marks.map(m => markSvg(m, { placeholder: showPh, crop: state.step === 3 && cropId === m.id })).join('')}`;
+  let marks = `<g class="mark-layer">${state.marks.filter(m => onPage(m)).map(m => markSvg(m, { placeholder: showPh, crop: state.step === 3 && cropId === m.id })).join('')}`;
   const stampPh = state.stamp.enabled && rec.stamp && !state.stamp.png ? rec.stamp : null;
   if (stampPh) marks += markSvg({ id: 'stamp-ph', name: '도장', shape: 'square', x: stampPh.x, y: stampPh.y, w: stampPh.w, h: stampPh.h }, { placeholder: true });
   marks += '</g>';
@@ -872,6 +898,7 @@ async function renderPreview() {
     // 마크 프레임: 끌어 옮기기, 모서리로 크기, 두 번 누르면 틀 안 그림 자르기(이동·휠 확대)
     if (state.step === 3) {
       for (const m of state.marks) {
+        if (!onPage(m)) continue;
         const sel = markSel === m.id, crop = cropId === m.id;
         const shape = (MARK_SHAPES.find(x => x.id === m.shape) || MARK_SHAPES[0]).name;
         boxes += `<g class="box mark-box drag ${sel ? 'sel' : ''} ${crop ? 'crop' : ''}" data-box="__mark:${m.id}">
@@ -1169,6 +1196,7 @@ function addMark(shape, at) {
   const hh = shape === 'circle' ? size : 24;
   const cx = at ? at.x : C.x + C.w / 2, cy = at ? at.y : C.y + C.h / 2;
   const m = clampMark(newMark({ shape, name: `마크 ${state.marks.length + 1}`, x: cx - size / 2, y: cy - hh / 2, w: size, h: hh }));
+  if (multiBg()) m.page = curPage();
   state.marks.push(m);
   selectMark(m.id);
   commitNow(); refresh();
@@ -1545,9 +1573,10 @@ async function renderSummary() {
   const missing = new Set();
   const items = [];
   for (let i = 0; i < n; i++) {
-    const r = computeRecord(docView(), i, store);
-    r.missing.forEach(m => missing.add(m));
-    const over = r.fields.filter(x => x.overflow).map(x => x.field.label);
+    const sd = sheetDoc();
+    const recs = sheetIndices([i]).map(v => computeRecord(sd, v, store));
+    recs.forEach(r => r.missing.forEach(m => missing.add(m)));
+    const over = recs.flatMap(r => r.fields.filter(x => x.overflow).map(x => x.field.label));
     overCount += over.length ? 1 : 0;
     const ed = editedCount(i);
     items.push(`<li class="${i === state.current ? 'cur' : ''}"><button data-rec="${i}"><span class="no">${i + 1}</span><span class="nm">${esc(recName(i)) || '(이름 없음)'}</span>${ed ? `<span class="tagc ed">고침 ${ed}</span>` : ''}${over.length ? `<span class="tagc ov">넘침</span>` : ''}</button></li>`);
@@ -1555,7 +1584,7 @@ async function renderSummary() {
   $('#recList').innerHTML = items.join('');
   renderRangeInfo();
   const editedTotal = state.overrides.filter((o, i) => i < n && Object.keys(o).length).length;
-  $('#listSum').textContent = `${n}장${editedTotal ? ` · 직접 고친 상장 ${editedTotal}` : ''}${overCount ? ` · 넘침 ${overCount}` : ''}`;
+  $('#listSum').textContent = `${sheetWord(n)}${editedTotal ? ` · 직접 고친 상장 ${editedTotal}` : ''}${overCount ? ` · 넘침 ${overCount}` : ''}`;
   const cur = $('#recList li.cur');
   if (cur) cur.scrollIntoView({ block: 'nearest' });
   const usedFonts = [...new Set(state.fields.map(f => f.font))].map(id => fontInfo(id));
@@ -1661,17 +1690,17 @@ async function exportPdf() {
     if (!checkIndices(indices)) return;
     progress(0, indices.length, '준비 중…');
     const res = await buildPdf({
-      PDFLib: window.PDFLib, fontkit: window.fontkit, doc: docView(), store, indices,
+      PDFLib: window.PDFLib, fontkit: window.fontkit, doc: sheetDoc(), store, indices: sheetIndices(indices),
       paper: paperSize(), offset: state.offset, scale: printScale(),
       stampPng: state.stamp.png ? dataUrlBytes(state.stamp.png) : null,
       marks: await bakedMarks(),
       border: state.bgInPdf && !isCustom() ? state.border : null,
-      background: await pdfBackground(),
+      backgrounds: await pdfBackgrounds(),
       subset: subsetFn,
       onProgress: async (d, t) => { progress(d, t, d === t ? '파일로 묶는 중…' : ''); await new Promise(r => setTimeout(r)); },
     });
     download(res.bytes, `상장_${stamp8()}${rangeSuffix(indices)}.pdf`, 'application/pdf');
-    progress(1, 1, `PDF ${indices.length}장을 만들었어요.`);
+    progress(1, 1, `PDF ${sheetWord(indices.length)}을 만들었어요.`);
   } catch (e) {
     console.error(e);
     progress(0, 1, `PDF를 만들지 못했어요: ${e.message}`);
@@ -1717,7 +1746,7 @@ async function bakedMarks() {
     if (!m.src) continue;
     try {
       const b = await bakeMark(m);
-      if (b) out.push({ x: m.x, y: m.y, w: m.w, h: m.h, png: dataUrlBytes(b.png), url: b.png, pxW: b.pxW, pxH: b.pxH });
+      if (b) out.push({ x: m.x, y: m.y, w: m.w, h: m.h, png: dataUrlBytes(b.png), url: b.png, pxW: b.pxW, pxH: b.pxH, page: multiBg() ? (m.page || 0) : null });
     } catch (e) { console.error(e); }
   }
   return out;
@@ -1733,21 +1762,25 @@ async function printNow() {
     if (!checkIndices(indices)) return;
     const { w, h } = paperSize();
     // 테두리: PDF와 같은 단색 경로(그라데이션은 인쇄에서 빠지는 브라우저가 있음)
-    const bg = isCustom() ? (state.bgInPdf && state.bg ? (() => { const b = bgBox(state.bg, paperSize(), state.bgFit); return `<image href="${state.bg.src}" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" preserveAspectRatio="none"/>`; })() : '') : state.bgInPdf ? borderShapes(normBorder(state.border)).map(sh => sh.fill
+    const bgFor = p => (isCustom() ? (state.bgInPdf && state.bg ? bgImageSvg(curBg(p)) : '') : bgBorder);
+    const bgBorder = isCustom() ? '' : state.bgInPdf ? borderShapes(normBorder(state.border)).map(sh => sh.fill
       ? `<path d="${sh.d}" fill="${sh.fill}"/>`
       : `<path d="${sh.d}" fill="none" stroke="${sh.stroke}" stroke-width="${sh.width}"${sh.cap ? ' stroke-linecap="round"' : ''}/>`).join('') : '';
-    const mk = (await bakedMarks()).map(m => `<image href="${m.url}" x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}" preserveAspectRatio="none"/>`).join('');
+    const baked = await bakedMarks();
+    const mkFor = p => baked.filter(m => m.page == null || m.page === p).map(m => `<image href="${m.url}" x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}" preserveAspectRatio="none"/>`).join('');
     let html = '';
-    for (const i of indices) {
-      const rec = computeRecord(docView(), i, store);
+    const sd = sheetDoc();
+    for (const i of sheetIndices(indices)) {
+      const rec = computeRecord(sd, i, store);
+      const pg = rec.page || 0;
       let stamp = '';
       if (rec.stamp && state.stamp.png) {
         const st = rec.stamp;
         stamp = `<image href="${state.stamp.png}" x="${st.x}" y="${st.y}" width="${st.w}" height="${st.h}" preserveAspectRatio="none"/>`;
       }
-      html += printPageSvg(bg + mk + stamp + textLayerSvg(rec));
+      html += printPageSvg(bgFor(pg) + mkFor(pg) + stamp + textLayerSvg(rec));
     }
-    await sendToPrinter(html, `${indices.length}장을 인쇄 창으로 보냈어요. 배율은 기본값(100%), 여백은 없음으로 인쇄하세요.`);
+    await sendToPrinter(html, `${sheetWord(indices.length)}을 인쇄 창으로 보냈어요. 배율은 기본값(100%), 여백은 없음으로 인쇄하세요.`);
   } catch (e) {
     console.error(e);
     progress(0, 1, `인쇄하지 못했어요: ${e.message}`);
@@ -1809,9 +1842,10 @@ function applyTemplateUI() {
 function renderBgPanel() {
   const bg = state.bg;
   $('#bgInfo').innerHTML = bg
-    ? `<b>${esc(bg.name || '배경')}</b> · ${bg.kind === 'pdf' ? `PDF ${bg.mmW}×${bg.mmH}mm${bg.pages > 1 ? ` (${bg.pages}쪽 중 첫 쪽)` : ''}${bg.pdf ? '' : ' · 파일이 커서 PDF로 내보낼 때는 그림으로 들어가요'}` : `그림 ${bg.pxW}×${bg.pxH}px`}`
+    ? `<b>${esc(bg.name || '배경')}</b> · ${bg.kind === 'pdf' ? `PDF ${curBg().mmW}×${curBg().mmH}mm${bg.pages > 1 ? ` · ${bg.pages}쪽${bg.pages > MAX_PAGES ? ` (앞 ${MAX_PAGES}쪽만 써요)` : ''}` : ''}${bg.pdf ? '' : ' · 파일이 커서 PDF로 내보낼 때는 그림으로 들어가요'}` : `그림 ${bg.pxW}×${bg.pxH}px`}`
     : '';
   $('#bgActs').hidden = !bg;
+  renderBgPages();
   $('#bgDrop').hidden = !!bg;
   const sel = $('#paperKey');
   if (!sel.options.length) sel.innerHTML = PAPER_PRESETS.map(p => `<option value="${p.key}">${p.label}</option>`).join('');
@@ -1821,6 +1855,51 @@ function renderBgPanel() {
   if ($('#paperW') !== document.activeElement) $('#paperW').value = Math.round(P.w * 10) / 10;
   if ($('#paperH') !== document.activeElement) $('#paperH').value = Math.round(P.h * 10) / 10;
   $('#bgFitSeg').innerHTML = BG_FITS.map(f => `<button data-fit="${f.id}" class="${state.bgFit === f.id ? 'on' : ''}">${f.name}</button>`).join('');
+}
+
+// 여러 쪽 PDF: 한 쪽만 쓸지, 모든 쪽을 한 벌로 쓸지
+function renderBgPages() {
+  const n = bgPageCount();
+  $('#bgPagesCard').hidden = n < 2;
+  if (n < 2) return;
+  const all = state.bgPages === 'all';
+  $$('#bgPagesSeg [data-pages]').forEach(b => b.classList.toggle('on', b.dataset.pages === state.bgPages));
+  const others = state.fields.filter(f => (f.page || 0) > 0).length + state.marks.filter(m => (m.page || 0) > 0).length;
+  $('#bgPagesHint').textContent = all
+    ? `명단 한 줄마다 ${n}쪽이 한 벌로 나와요(예: 앞면·뒷면). 글 상자는 쪽마다 따로 얹어요 — 3단계 위쪽 ‹ › 로 쪽을 넘기세요.`
+    : `배경으로 쓸 쪽을 고르세요. 명단 한 줄마다 이 쪽 한 장씩 나와요.${others ? ` 다른 쪽에 얹었던 글 상자·틀 ${others}개도 이 쪽에 함께 보여요.` : ''}`;
+  const sel = all ? curPage() : (state.bgPage || 0);
+  $('#bgThumbs').innerHTML = state.bg.pageImgs.map((pg, i) => `<button data-pg="${i}" class="${i === sel ? 'on' : ''}" title="${i + 1}쪽${all ? ' 보기' : '을 배경으로'}"><img src="${pg.src}" alt="">${i + 1}쪽</button>`).join('');
+}
+function setBgPagesMode(mode) {
+  if (state.bgPages === mode) return;
+  state.bgPages = mode;
+  viewPage = mode === 'all' ? (state.bgPage || 0) : 0;
+  setPaper(resolvePaper(state.paper ? state.paper.key : 'bg', curBg(), state.paper));
+  commitNow(); renderBgPanel(); refresh(); drawBorderView();
+}
+function pickBgPage(i) {
+  if (multiBg()) { viewPage = i; }
+  else {
+    state.bgPage = i;
+    if (state.paper && state.paper.key === 'bg') setPaper(resolvePaper('bg', curBg(), state.paper));
+    commitNow();
+  }
+  renderBgPanel(); refresh(); drawBorderView();
+}
+function goPage(d) {
+  const n = pageCount();
+  viewPage = (curPage() + d + n) % n;
+  if (editing) closeEditor();
+  if (isCustom() && state.step === 1) renderBgPanel();
+  refresh();
+}
+function renderPageNav() {
+  const nav = $('#pageNav');
+  if (!nav) return;
+  nav.hidden = !multiBg() || state.step < 3;
+  if (nav.hidden) return;
+  $('#pgPos').textContent = `${curPage() + 1} / ${pageCount()}쪽`;
 }
 
 // 용지가 바뀌면 글 상자·마크도 같은 비율로 옮긴다
@@ -1848,11 +1927,14 @@ async function setBackground(file) {
   if (!file) return;
   progressMsg('배경을 읽는 중…');
   try {
-    const bg = await loadBackground(file);
+    const bg = await loadBackground(file, (p, n) => { if (n > 1) progressMsg(`PDF ${p} / ${n}쪽 읽는 중…`); });
     state.bg = bg;
+    state.bgPage = 0; viewPage = 0;
+    // 2~4쪽(앞뒤 카드·두 쪽 안내장 등)은 한 벌로, 그보다 많으면 한 쪽 고르기로 시작
+    state.bgPages = bg.pageImgs && bg.pageImgs.length > 1 && bg.pageImgs.length <= 4 ? 'all' : 'one';
     // 처음 올리면 용지를 배경 크기로
     const key = state.paper && state.paper.key !== 'A4P' ? state.paper.key : 'bg';
-    setPaper(resolvePaper(key, bg, state.paper));
+    setPaper(resolvePaper(key, curBg(), state.paper));
     progressMsg('');
     commitNow(); renderBgPanel(); refresh(); drawBorderView();
   } catch (e) {
@@ -1868,25 +1950,31 @@ async function drawCustomView() {
   try {
     await ensureFonts();
     const rec = computeRecord(docView(), Math.min(state.current, Math.max(0, state.rows.length - 1)), store);
-    const mk = state.marks.map(m => markSvg(m, { placeholder: true })).join('');
+    const mk = state.marks.filter(m => onPage(m)).map(m => markSvg(m, { placeholder: true })).join('');
     text = `${mk}${textLayerSvg(rec)}`;
   } catch {}
   $('#borderView').innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" style="aspect-ratio:${w}/${h}"><rect width="${w}" height="${h}" fill="#fff"/>${paperBgSvg()}${text}</svg>`;
 }
 
-// PDF 내보내기 배경
-async function pdfBackground() {
+// PDF 내보내기 배경: 쪽마다 하나(한 쪽 모드는 고른 쪽 하나)
+async function pdfBackgrounds() {
   if (!isCustom() || !state.bg || !state.bgInPdf) return null;
-  const box = bgBox(state.bg, paperSize(), state.bgFit);
   const pdf = state.bg.kind === 'pdf' ? pdfBytes(state.bg) : null;
-  return { pdf, img: dataUrlBytes(state.bg.src), png: /^data:image\/png/.test(state.bg.src), box };
+  return Array.from({ length: pageCount() }, (_, p) => {
+    const bg = curBg(p);
+    return { pdf, pdfPage: bg.pageIndex || 0, img: dataUrlBytes(bg.src), png: /^data:image\/png/.test(bg.src), box: bgBox(bg, paperSize(), state.bgFit) };
+  });
 }
-// 한글 내보내기 배경: 용지 크기 그림 한 장(맨 뒤)
+// 한글 내보내기 배경: 용지 크기 그림 한 장(맨 뒤) — 여러 쪽이면 쪽마다
 async function hwpxBackground() {
   if (!isCustom() || !state.bg || !state.bgInPdf) return [];
   const { w, h } = paperSize();
-  const r = await bgPng(state.bg, paperSize(), state.bgFit);
-  return [{ x: 0, y: 0, w, h, png: r.png, url: r.url, pxW: r.pxW, pxH: r.pxH }];
+  const out = [];
+  for (let p = 0; p < pageCount(); p++) {
+    const r = await bgPng(curBg(p), paperSize(), state.bgFit);
+    out.push({ x: 0, y: 0, w, h, png: r.png, url: r.url, pxW: r.pxW, pxH: r.pxH, page: multiBg() ? p : null });
+  }
+  return out;
 }
 
 // ---- 글 상자 추가 · 지우기
@@ -1904,6 +1992,7 @@ function addTextBox(at) {
     x: Math.round((cx - bw / 2) * 10) / 10, y: Math.round((cy - bh / 2) * 10) / 10, w: Math.round(bw * 10) / 10, h: Math.round(bh * 10) / 10,
     size, minSize: Math.max(5, Math.round(size * 0.6)), maxLines: 0, manual: true, added: true,
   };
+  if (multiBg()) f.page = curPage();
   state.fields.push(f);
   setSelection([f.id], f.id);
   commitNow(); renderRibbon(); refresh();
@@ -2029,13 +2118,18 @@ async function exportPng() {
     const { w, h } = paperSize();
     const dpi = 200, k = Math.min(dpi / 25.4, 4200 / Math.max(w, h));
     const W = Math.round(w * k), H = Math.round(h * k);
-    const marks = (await bakedMarks()).map(m => `<image href="${m.url}" x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}" preserveAspectRatio="none"/>`).join('');
-    const bg = isCustom() ? (state.bg && state.bgInPdf ? paperBgSvg() : '') : (state.bgInPdf ? `<image href="${svgDataUrl(borderSvg(state.border, { bg: false }))}" x="0" y="0" width="${w}" height="${h}"/>` : '');
+    const baked = await bakedMarks();
+    const marksFor = p => baked.filter(m => m.page == null || m.page === p).map(m => `<image href="${m.url}" x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}" preserveAspectRatio="none"/>`).join('');
+    const bgFor = p => (isCustom() ? (state.bg && state.bgInPdf ? bgImageSvg(curBg(p)) : '') : (state.bgInPdf ? `<image href="${svgDataUrl(borderSvg(state.border, { bg: false }))}" x="0" y="0" width="${w}" height="${h}"/>` : ''));
     const zip = new window.JSZip();
-    for (let n = 0; n < indices.length; n++) {
-      const i = indices[n];
+    const sd = sheetDoc();
+    const sheets = sheetIndices(indices);
+    const P = pageCount();
+    for (let n = 0; n < sheets.length; n++) {
+      const v = sheets[n], i = sd.rowOf(v);
       applyAutoLayout(docView(), store, state.border, paperSize(), i);
-      const rec = computeRecord(docView(), i, store);
+      const rec = computeRecord(sd, v, store);
+      const pg = rec.page || 0, bg = bgFor(pg), marks = marksFor(pg);
       const stamp = rec.stamp && state.stamp.png ? `<image href="${state.stamp.png}" x="${rec.stamp.x}" y="${rec.stamp.y}" width="${rec.stamp.w}" height="${rec.stamp.h}" preserveAspectRatio="none"/>` : '';
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="#fff"/>${bg}${marks}${stamp}${textLayerSvg(rec)}</svg>`;
       const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
@@ -2045,12 +2139,12 @@ async function exportPng() {
       URL.revokeObjectURL(url);
       const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
       const nm = (recName(i) || '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
-      zip.file(`${String(i + 1).padStart(String(state.rows.length).length, '0')}${nm ? `_${nm}` : ''}.png`, blob);
-      progress(n + 1, indices.length, `${n + 1} / ${indices.length}장 그리는 중…`);
+      zip.file(`${String(i + 1).padStart(String(state.rows.length).length, '0')}${nm ? `_${nm}` : ''}${P > 1 ? `_${pg + 1}쪽` : ''}.png`, blob);
+      progress(n + 1, sheets.length, `${n + 1} / ${sheets.length}장 그리는 중…`);
     }
     const out = await zip.generateAsync({ type: 'uint8array' });
     download(out, `${isCustom() ? '메일머지' : '상장'}_${stamp8()}${rangeSuffix(indices)}_PNG.zip`, 'application/zip');
-    progress(1, 1, `${indices.length}장을 PNG 묶음으로 만들었어요.`);
+    progress(1, 1, `${sheetWord(indices.length)}을 PNG 묶음으로 만들었어요.`);
   } catch (e) {
     console.error(e);
     progress(0, 1, `그림으로 만들지 못했어요: ${e.message}`);
@@ -2282,14 +2376,14 @@ async function exportHwpx() {
     if (!checkIndices(indices)) return;
     progress(0, 1, '한글 파일 만드는 중…');
     const res = await buildHwpx({
-      JSZip: window.JSZip, template: await loadTemplate(), doc: docView(), store, indices,
+      JSZip: window.JSZip, template: await loadTemplate(), doc: sheetDoc(), store, indices: sheetIndices(indices),
       paper: paperSize(), offset: state.offset, scale: printScale(),
       stampPng: state.stamp.png ? dataUrlBytes(state.stamp.png) : null,
       marks: [...(await hwpxBackground()), ...(await bakedMarks())],
       stampPx: { w: state.stamp.imgW, h: state.stamp.imgH },
     });
     download(res.bytes, `상장_${stamp8()}${rangeSuffix(indices)}.hwpx`, 'application/hwp+zip');
-    progress(1, 1, `한글 파일(${indices.length}쪽)을 만들었어요.`);
+    progress(1, 1, `한글 파일(${indices.length * pageCount()}쪽)을 만들었어요.`);
   } catch (e) {
     console.error(e);
     progress(0, 1, `한글 파일을 만들지 못했어요: ${e.message}`);
@@ -2360,9 +2454,13 @@ function bind() {
   $('#bgDrop').addEventListener('click', bgPick);
   $('#bgChange').addEventListener('click', bgPick);
   $('#bgFile').addEventListener('change', e => setBackground(e.target.files[0]));
+  $('#bgPagesSeg').addEventListener('click', e => { const b = e.target.closest('[data-pages]'); if (b) setBgPagesMode(b.dataset.pages); });
+  $('#bgThumbs').addEventListener('click', e => { const b = e.target.closest('[data-pg]'); if (b) pickBgPage(Number(b.dataset.pg)); });
+  $('#prevPg').addEventListener('click', () => goPage(-1));
+  $('#nextPg').addEventListener('click', () => goPage(1));
   $('#bgRemove').addEventListener('click', () => { state.bg = null; commitNow(); renderBgPanel(); refresh(); drawBorderView(); });
-  $('#paperKey').addEventListener('change', e => { setPaper(resolvePaper(e.target.value, state.bg, state.paper)); commitNow(); renderBgPanel(); refresh(); drawBorderView(); });
-  for (const id of ['paperW', 'paperH']) $(`#${id}`).addEventListener('change', () => { setPaper(resolvePaper('custom', state.bg, { w: $('#paperW').value, h: $('#paperH').value })); commitNow(); renderBgPanel(); refresh(); drawBorderView(); });
+  $('#paperKey').addEventListener('change', e => { setPaper(resolvePaper(e.target.value, curBg(), state.paper)); commitNow(); renderBgPanel(); refresh(); drawBorderView(); });
+  for (const id of ['paperW', 'paperH']) $(`#${id}`).addEventListener('change', () => { setPaper(resolvePaper('custom', curBg(), { w: $('#paperW').value, h: $('#paperH').value })); commitNow(); renderBgPanel(); refresh(); drawBorderView(); });
   $('#bgFitSeg').addEventListener('click', e => { const b = e.target.closest('[data-fit]'); if (!b) return; state.bgFit = b.dataset.fit; commitNow(); renderBgPanel(); refresh(); drawBorderView(); });
   for (const [dz, fn] of [['#bgDrop', setBackground], ['#docDrop', setDocument]]) {
     $(dz).addEventListener('dragover', e => { e.preventDefault(); $(dz).classList.add('over'); });
@@ -2548,7 +2646,7 @@ function bind() {
     const targets = ['x', 'y', 'w', 'h'].includes(prop) ? [selField()].filter(Boolean) : selFields();
     targets.forEach(f => updateField(f.id, prop, v));
   };
-  $('#rbField').addEventListener('change', e => selectField(e.target.value));
+  $('#rbField').addEventListener('change', e => { const f = state.fields.find(x => x.id === e.target.value); if (f && multiBg()) viewPage = f.page || 0; selectField(e.target.value); });
   $('#rbFont').addEventListener('change', e => {
     const f = selField();
     if (f) upd('font', e.target.value);

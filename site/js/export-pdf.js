@@ -51,13 +51,20 @@ export async function buildPdf(opts) {
   const embedFont = async (handle) => embedded.get(handle.key);
   const stampImg = stampPng ? await pdf.embedPng(stampPng) : null;
   // 배경: { pdf: Uint8Array(원본) | null, img: Uint8Array, png: bool, box: {x,y,w,h} }
-  let bgEmb = null;
-  if (opts.background) {
-    const bg = opts.background;
-    try {
-      if (bg.pdf) [bgEmb] = await pdf.embedPdf(bg.pdf, [0]);
-    } catch { bg.pdf = null; }
-    if (!bgEmb && bg.img) bgEmb = bg.png ? await pdf.embedPng(bg.img) : await pdf.embedJpg(bg.img);
+  // 여러 쪽 배경이면 opts.backgrounds[쪽] (rec.page로 고른다)
+  const bgs = opts.backgrounds || (opts.background ? [opts.background] : []);
+  const bgEmbs = [];
+  const srcPdf = bgs.find(b => b && b.pdf);
+  let pdfPages = null;
+  if (srcPdf) {
+    try { pdfPages = await pdf.embedPdf(srcPdf.pdf, bgs.map(b => (b && b.pdfPage) || 0)); } catch { pdfPages = null; }
+  }
+  for (let i = 0; i < bgs.length; i++) {
+    const bg = bgs[i];
+    if (!bg) { bgEmbs.push(null); continue; }
+    if (pdfPages && bg.pdf) { bgEmbs.push({ emb: pdfPages[i], vector: true, box: bg.box }); continue; }
+    if (bg.img) bgEmbs.push({ emb: bg.png ? await pdf.embedPng(bg.img) : await pdf.embedJpg(bg.img), vector: false, box: bg.box });
+    else bgEmbs.push(null);
   }
   const markImgs = [];
   for (const mk of opts.marks || []) markImgs.push({ ...mk, img: await pdf.embedPng(mk.png) });
@@ -71,10 +78,11 @@ export async function buildPdf(opts) {
     // 배율 보정: 용지 가운데를 기준으로 전체를 키우거나 줄인다
     page.pushOperators(pushGraphicsState(), concatTransformationMatrix(scale, 0, 0, scale, (W / 2) * (1 - scale), (H / 2) * (1 - scale)));
     // 메일머지 배경(그림 또는 원본 PDF 쪽을 벡터 그대로)
-    if (bgEmb) {
-      const b = opts.background.box;
+    const be = bgEmbs[rec.page || 0];
+    if (be) {
+      const b = be.box;
       const at = { x: (b.x + offset.x) * MM, y: H - (b.y + b.h + offset.y) * MM, width: b.w * MM, height: b.h * MM };
-      if (opts.background.pdf) page.drawPage(bgEmb, at); else page.drawImage(bgEmb, at);
+      if (be.vector) page.drawPage(be.emb, at); else page.drawImage(be.emb, at);
     }
     if (border) {
       for (const s of borderShapes(border, paper)) {
@@ -102,6 +110,7 @@ export async function buildPdf(opts) {
     };
     // 마크 프레임(틀 모양으로 구운 PNG): 테두리 위, 도장·글씨 아래
     for (const mk of markImgs) {
+      if (mk.page != null && rec.page != null && mk.page !== rec.page) continue;
       page.drawImage(mk.img, { x: (mk.x + offset.x) * MM, y: H - (mk.y + mk.h + offset.y) * MM, width: mk.w * MM, height: mk.h * MM });
     }
     // 칸에 딸린 장식선(이중선·밑줄·서명선)

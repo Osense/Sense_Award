@@ -108,6 +108,7 @@ export async function buildHwpx(opts) {
     for (const b of bins) {
       if (!b.mark) continue;
       const m = b.mark;
+      if (m.page != null && rec.page != null && m.page !== rec.page) continue;
       objs.push(picXml({ id: nextId(), z: z++, x: PX(m.x), y: PY(m.y), w: m.w * k, h: m.h * k, px: { w: m.pxW, h: m.pxH }, bin: b.id }));
     }
     // 장식선(이중선·밑줄·서명선): 선만 있는 납작한 그리기 개체
